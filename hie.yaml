@@ -1,0 +1,16 @@
+# cradle:
+#     stack:
+#         - path: "./src"
+#           component: "floorplanning:lib"
+#         - path: "./app"
+#           component: "floorplanning:exe:floorplanning"
+#         - path: "./test"
+#           component: "floorplanning:test:floorplanning-tests"
+cradle:
+    cabal:
+        - path: "./src"
+          component: "lib:floorplanning"
+        - path: "./app"
+          component: "exe:floorplanning"
+        - path: "./test"
+          component: "test:floorplanning-tests"
