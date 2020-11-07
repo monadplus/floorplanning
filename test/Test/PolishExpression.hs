@@ -87,7 +87,7 @@ parseSpec = describe "parse" $ do
       Right pe -> pe `shouldBe` PolishExpression [Operand 1, Operand 2, Operator V, Operand 3, Operator V]
 
   it "should parse another normalized polish expression" $ do
-    case parsePolishExpression "123*+4+5" of
+    case parsePolishExpression "123*+4+5*" of
       Left err -> expectationFailure err
       Right pe -> do
         let expected =
@@ -99,7 +99,8 @@ parseSpec = describe "parse" $ do
                   Operator H,
                   Operand 4,
                   Operator H,
-                  Operand 5
+                  Operand 5,
+                  Operator V
                 ]
         pe `shouldBe` expected
 
@@ -110,13 +111,13 @@ parseSpec = describe "parse" $ do
 
   it "should fail parsing a non-balloting sequence" $ do
     case parsePolishExpression "12*+4+5" of
-      Left err -> err `shouldBe` "Balloting property violated."
+      Left err -> err `shouldBe` "Property (ii) violated: balloting property"
       Right _ -> expectationFailure "Expecting the parse to fail."
 
 utilSpec :: Spec
 utilSpec = describe "Util" $ do
   it "takeOperators" $ do
-    let pe = parsePolishExpression' "123*+4*56*"
-        (l, r) = takeOperators 3 `on` pe -- "123*+4*" "56*"
+    let pe = parsePolishExpression' "123*+4*56*+"
+        (l, r) = takeOperators 3 `applyTo` pe -- "123*+4*" "56*+"
     l `shouldBe` [Operand 1, Operand 2, Operand 3, Operator V, Operator H, Operand 4, Operator V]
-    r `shouldBe` [Operand 5, Operand 6, Operator V]
+    r `shouldBe` [Operand 5, Operand 6, Operator V, Operator H]

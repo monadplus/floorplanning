@@ -23,7 +23,7 @@ Objective: minimize global bounding box subject to aspect ratio constraints
 Polish expression: sequence of elements from {1,2,...,n,*,+} with the balloting property.
                    The traverse of a slicing tree in postorder gives a (proper) polish expression.
 
-(i) Each block appears exactly once in the string
+(i) Each block appears exactly once in the string an #operators = n - 1
 (ii) Balloting property: forall positions in the string #operators < #operand
 (iii) no consecutive operator of the same type: normality property.
 

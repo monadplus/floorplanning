@@ -5,7 +5,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -53,13 +52,13 @@ newtype PolishExpression = PolishExpression {_pe :: [Alphabet]}
 -- 'Int' parameter is the number of modules/blocks.
 initialPE :: Int -> Maybe PolishExpression
 initialPE n
-  | n < 3 = Nothing
+  | n < 2 = Nothing
   | otherwise =
     let operator = (Operator V)
-        operands = take (n-1) $ fmap Operand [2 ..]
+        operands = take (n -1) $ fmap Operand [2 ..]
         pe = PolishExpression $ (Operand 1 : (List.intersperse operator operands)) ++ [operator]
      in case validate pe of
-          Left  _ -> Nothing
+          Left _ -> Nothing
           Right _ -> Just pe
 
 -- | Perturbate a polish expression randomly applying one of the three valid moves.
@@ -88,7 +87,6 @@ perturbateN n pe = do
     go n gen pe = do
       pe' <- perturbate gen pe
       go (n - 1) gen pe'
-
 
 -- | Swap two adjacent operands
 move1 :: Random.GenIO -> PolishExpression -> IO PolishExpression
@@ -146,7 +144,7 @@ move2' i chainLength pe = go i chainLength `over` pe
 -- * If none of the swaps are valid
 move3 :: Random.GenIO -> PolishExpression -> IO (Maybe PolishExpression)
 move3 gen pe =
-  let len = length `on` pe
+  let len = length `applyTo` pe
    in move3' len 10
   where
     move3' :: Int -> Int -> IO (Maybe PolishExpression)
@@ -196,10 +194,19 @@ takeOperators n (x : xs) =
 -- For some reason, they allow not normalized polish expressions (the P_0 is an example)
 validate :: PolishExpression -> Either String PolishExpression
 validate polishExpression =
-  if
-      | propII polishExpression -> Right polishExpression
-      | otherwise -> Left "Balloting property violated."
+  if propI polishExpression
+    then
+      if propII polishExpression
+        then Right polishExpression
+        else Left "Property (ii) violated: balloting property"
+    else Left "Property (i) violated: #operators = n - 1"
   where
+    propI :: PolishExpression -> Bool
+    propI (PolishExpression v) =
+      let nOperands = length . filter isOperand $ v
+          nOperators = length . filter isOperator $ v
+       in nOperators == nOperands - 1
+
     propII :: PolishExpression -> Bool
     propII (PolishExpression v) =
       isJust $
@@ -214,17 +221,6 @@ validate polishExpression =
           )
           (0 :: Int)
           v
-
--- Not neeeded
--- propIII :: PolishExpression -> Bool
--- propIII =
---   let operators = mapMaybe onlyOperators
---       maxConsecutives = List.maximum . fmap length . List.group
---    in (< 2) . maxConsecutives . operators . coerce
---   where
---     onlyOperators :: Alphabet -> Maybe Operator
---     onlyOperators (Operator op) = Just op
---     onlyOperators (Operand _) = Nothing
 
 ---------------------------------------------------------
 -- Parsing and Quasiquoting
@@ -281,12 +277,12 @@ isOperator (Operator _) = True
 -- | (#Operands, #Operators)
 sizes :: PolishExpression -> (Int, Int)
 sizes pe =
-  let nOperands = (length . filter isOperand) `on` pe
-      nOperators = (length `on` pe) - nOperands
+  let nOperands = (length . filter isOperand) `applyTo` pe
+      nOperators = (length `applyTo` pe) - nOperands
    in (nOperands, nOperators)
 
-on :: ([Alphabet] -> r) -> PolishExpression -> r
-on f = f . coerce
+applyTo :: ([Alphabet] -> r) -> PolishExpression -> r
+applyTo f = f . coerce
 
 over :: ([Alphabet] -> [Alphabet]) -> PolishExpression -> PolishExpression
 over f = coerce . f . coerce
