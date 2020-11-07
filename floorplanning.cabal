@@ -36,8 +36,10 @@ Library
   hs-source-dirs:     src
 
   exposed-modules:    Lib
+                      Lib.PolishExpression
+                      Lib.SimulatedAnnealing
 
-  other-modules:      PolishExpression
+  -- other-modules:
 
   build-depends:      base           >=4.12     && <4.15,
                       bytestring     >=0.10.8.2 && <0.11.0.0,
@@ -113,7 +115,7 @@ Test-suite floorplanning-tests
                         base              >=4.12     && <4.15,
                         hspec             >=2.6.0    && <2.8,
                         hspec-core        >=2.6.0    && <2.8,
-                        QuickCheck        >=2.12     && <2.14
+                        QuickCheck        >=2.14     && <2.15
 
   ghc-options:          -Wall
                         -Wincomplete-uni-patterns
