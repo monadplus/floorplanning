@@ -27,6 +27,7 @@ import Data.Maybe (isJust)
 import qualified System.Random.MWC as Random
 import Text.Printf
 import Text.Read (readMaybe)
+import Control.Monad.IO.Class
 
 -----------------------------------------------------
 
@@ -62,8 +63,8 @@ initialPE n
           Right _ -> Just pe
 
 -- | Perturbate a polish expression randomly applying one of the three valid moves.
-perturbate :: Random.GenIO -> PolishExpression -> IO PolishExpression
-perturbate gen pe = do
+perturbate :: (MonadIO m) => Random.GenIO -> PolishExpression -> m PolishExpression
+perturbate gen pe = liftIO $ do
   go =<< Random.uniformRM (1, 3) gen
   where
     go :: Int -> IO PolishExpression
@@ -77,10 +78,10 @@ perturbate gen pe = do
           Just pe' -> return pe'
       _ -> error "Random value should be in the range [1,3]"
 
-perturbateN :: Int -> PolishExpression -> IO PolishExpression
+perturbateN :: (MonadIO m) => Int -> PolishExpression -> m PolishExpression
 perturbateN n pe = do
-  when (n < 0) $ throwIO (AssertionFailed "Expected a positive number.")
-  gen <- Random.createSystemRandom
+  when (n < 0) $ (liftIO . throwIO) (AssertionFailed "Expected a positive number.")
+  gen <- liftIO $ Random.createSystemRandom
   go n gen pe
   where
     go 0 gen pe = return pe
@@ -89,10 +90,10 @@ perturbateN n pe = do
       go (n - 1) gen pe'
 
 -- | Swap two adjacent operands
-move1 :: Random.GenIO -> PolishExpression -> IO PolishExpression
+move1 :: (MonadIO m) => Random.GenIO -> PolishExpression -> m PolishExpression
 move1 gen pe = do
   let (nOperands, _) = sizes pe
-  i <- Random.uniformRM (0, nOperands - 2) gen
+  i <- liftIO $ Random.uniformRM (0, nOperands - 2) gen
   return (move1' i pe)
 
 -- | Swap operands i and i+1
@@ -107,8 +108,8 @@ move1' i pe = go i `over` pe
     go n (x : xs) = x : go (if isOperand x then n - 1 else n) xs
 
 -- | Complement some random chain of operators
-move2 :: Random.GenIO -> PolishExpression -> IO PolishExpression
-move2 gen pe = do
+move2 :: (MonadIO m) => Random.GenIO -> PolishExpression -> m PolishExpression
+move2 gen pe = liftIO $ do
   let (_, nOperators) = sizes pe
   i <- Random.uniformRM (0, nOperators - 1) gen
   chainLength <- Random.uniformRM (0, nOperators - i - 1) gen
@@ -142,10 +143,10 @@ move2' i chainLength pe = go i chainLength `over` pe
 -- * If none of the swaps is picked
 -- * If only the invalid swaps are picked
 -- * If none of the swaps are valid
-move3 :: Random.GenIO -> PolishExpression -> IO (Maybe PolishExpression)
-move3 gen pe =
+move3 :: (MonadIO m) => Random.GenIO -> PolishExpression -> m (Maybe PolishExpression)
+move3 gen pe = liftIO $ do
   let len = length `applyTo` pe
-   in move3' len 10
+  move3' len 10
   where
     move3' :: Int -> Int -> IO (Maybe PolishExpression)
     move3' _ 0 = return Nothing -- We failed n times, let's assume no valid swap is possible.

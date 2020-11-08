@@ -21,6 +21,8 @@ Nice to have:
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Lib.SimulatedAnnealing
   ( module Lib.SimulatedAnnealing
   , module Control.Monad.State.Lazy
@@ -36,6 +38,9 @@ import qualified Data.List as List
 import qualified System.Random.MWC as Random
 import Data.Coerce
 import Lib.PolishExpression
+import Lens.Micro
+import Lens.Micro.TH
+import Lens.Micro.Mtl
 
 -----------------------------------------------------------------------------------
 
@@ -50,78 +55,173 @@ pattern Shape' w h = Shape ((Width w),(Height h))
 newtype WireLength = WireLength { _wireLength :: Double }  deriving newtype (Show, Eq, Ord, Num, Fractional)
 newtype AspectRatio = AspectRatio { _aspectRatio :: Double } deriving newtype (Show, Eq, Ord, Num, Fractional)
 
-newtype Cost = Cost { _cost :: Double } deriving newtype (Show, Eq, Ord, Num)
+newtype Cost = Cost { _cost :: Double } deriving newtype (Show, Eq, Ord, Num, Floating, Fractional)
 
 -- | Lambda of the cost function: A(alpha) + lambda*W(alpha)
 -- 0 <= Lambda <= 1
 newtype Lambda = Lambda { _lambda :: Double } deriving newtype (Show, Eq, Ord, Num, Fractional)
 -- | Gamma as in section 2.5 Annealing Schedule
-newtype Gamma = Gamma { _gamma :: Double } deriving newtype (Show, Eq, Ord, Num, Fractional)
+newtype Gamma = Gamma { _gamma :: Int } deriving newtype (Show, Eq, Ord, Num)
 -- | Cooling rate as in section 2.5 Annealing Schedule
 newtype CoolingRate = CoolingRate { _coolingRate :: Double } deriving newtype (Show, Eq, Ord, Num, Fractional)
 
 data Coordinate = Coordinate { _x :: Double, _y :: Double }
   deriving stock (Show, Eq, Ord)
 
+-- Hide constructor
 newtype Problem = Problem
   { _problem :: IntMap ([Shape], [ModuleIndex])
   }
 
 {-
-- Current = Best = 12*3*4*..*n*
-- Cooling ratio = r = 0.85
-- ∆_avg = perform random moves and compute the average value fo the magnitude of change in cost per move.
-- T_0: we should have exp(-∆_avg/T_0) = P ~ 1, so T_0 = -∆_avg/ln(P)
-- T_final = T_0 * 0.2 (~ 10 iterations, with r=0.85)
-- T = T_0
-- N = n*\gamma where \gamma is a user defined constant
-
-repeat
-     repeat
-           New = current + randomly select move // M3 requires trying several times.
-           #moves <- #moves + 1
-           ∆cost <- Cost(new) - Cost(Z)
-           if (∆cost \leq 0) or (random(0,1) < e^{ -∆cost / T }) // Boltzmann acceptance criterion, where r is a random number [0, 1)
-                if(∆cost < 0) then downhill <- downhill + 1
-                Current = New
-                if cost(Current) < cost(Best) then Best <- Current
-           else
-               reject <- reject + 1
-     until (downhill == N) or (#moves == 2N)
-     T <- r*T
-     #moves = 0
-until (reject / #moves > 0.95) or (T <= T_final) or OutOfTime
-return Best
+* Modules numbered from 1 to n
+* One shape per module
+* Modules connected to existent modules.
 -}
+validateProblem :: IntMap ([Shape], [ModuleIndex]) -> Either String Problem
+validateProblem problem = do
+  let modules = Map.keys problem
+      n = List.length modules
+      (listOfShapes, listOfConnections) = unzip (Map.elems problem)
+  unless (maximum modules == n) $ Left "Modules numbered from 1 to n."
+  when (any null listOfShapes) $ Left "At least one shape per module."
+  forM_ listOfConnections $ \connections -> do
+   when (any (> n) connections) $ Left "Module does not exist."
+   unless (length (List.nub connections) == List.length connections) $ Left "Connection repeated."
+  return $ Problem problem
+
+defaultCoolingRate :: CoolingRate
+defaultCoolingRate = 0.85
+
+-- TODO is 2 ok ?
+defaultGamma :: Gamma
+defaultGamma = 2
 
 data Variables = Variables
   { _best :: PolishExpression
+  , _bestCost :: Cost
   , _current :: PolishExpression
+  , _currentCost :: Cost
   , _currentTmp :: Temperature
   , _finalTmp :: Temperature
   , _gen :: Random.GenIO
   , _moves :: Int
   , _downhill :: Int
-  , _reject :: Int
-  , _N :: Int
+  , _rejects :: Int
+  , _bigN :: Int
   }
+makeLenses ''Variables
+
+-- TODO  Add time limit.
+-- | Applies an annealing schedule to approximate the best solution
+simulatedAnnealing :: (MonadIO m) => Problem -> Lambda -> CoolingRate -> Gamma -> m SlicingTree
+simulatedAnnealing problem lambda r gamma = do
+  let n = problemSize problem
+  initial <- case initialPE n of
+               Nothing -> liftIO $ fail "Too small problem"
+               Just pe -> return pe
+  initialCost <- runComputeCost initial
+  _gen <- liftIO $ Random.createSystemRandom
+  moveIncrAvg <- computeMoveIncrAvg _gen problem initial
+  let p = (0.98 :: Double) -- Probability of acceptance at high-temperature.
+      _currentTmp = coerce $ (- moveIncrAvg) / log p
+      _finalTmp = coerce $ (r^(10 :: Int))*(coerce _currentTmp)
+      _bigN = n*(coerce gamma)
+      _current = initial
+      _currentCost = initialCost
+      _best = initial
+      _bestCost = initialCost
+      _moves = 0
+      _downhill = 0
+      _rejects = 0
+  runAnnealing Variables{..}
+    where
+      runComputeCost :: (MonadIO m) => PolishExpression -> m Cost
+      runComputeCost pe = evalStateT (computeCost pe lambda) problem
+
+      runAnnealing :: (MonadIO m) => Variables -> m SlicingTree
+      runAnnealing variables = do
+        Variables{..} <- execStateT outerLoop variables
+        return $ toSlicingTree _best
+
+      outerLoop :: (MonadState Variables m, MonadIO m) => m ()
+      outerLoop = do
+        innerLoop
+        currentTmp *= (coerce r)
+        stop <- outerStopCondition
+        unless stop $ do
+          moves .= 0
+          rejects .= 0
+          downhill .= 0
+          outerLoop
+
+      -- The reject rate is too high because
+      --   * the temperature is too low and/or
+      --   * the solution is too good
+      outerStopCondition :: (MonadState Variables m) => m Bool
+      outerStopCondition = do
+        Variables{..} <- get
+        let rejectRate = (fromIntegral _rejects / fromIntegral _moves) :: Double
+        return (rejectRate > 0.95 || _currentTmp < _finalTmp)
+
+      -- Be very careful not to use this values after being updated!
+      innerLoop :: (MonadState Variables m, MonadIO m) => m ()
+      innerLoop = do
+        (Variables {..}) <- get
+        newPE <- perturbate _gen _current
+        newCost <- runComputeCost newPE
+        moves += 1
+        let incrCost = newCost - _currentCost
+        randomValue <- rand _gen
+        if incrCost < 0 || coerce randomValue < exp (- incrCost / (coerce _currentTmp))
+          then do
+            when (incrCost < 0) $ downhill += 1
+            current .= newPE
+            currentCost .= newCost
+            when (newCost < _bestCost) $ do
+              best .= newPE
+              bestCost .= newCost
+          else rejects += 1
+        stop <- innerStopCondition
+        unless stop $ do
+          innerLoop
+
+      innerStopCondition :: (MonadState Variables m) => m Bool
+      innerStopCondition = do
+        Variables{..} <- get
+        return (_downhill >= _bigN || _moves >= 2*_bigN)
+
 
 -- TODO
--- Call with Problem, r=0.85, gamma=2
--- The Problem should have been previously validated i.e. numbers from 1,2,...,n
--- simulatedAnnealing :: Problem -> Lambda -> CoolingRate -> Gamma -> IO SlicingTree
--- simulatedAnnealing problem lambda r gamma = do
---   gen <- Random.createSystemRandom
---   let n = problemSize problem
---       initial = fromJust $ initialPE n -- FIXME
---       moveIncrAvg = computeMoveIncrAvg gen initial
---   return undefined
-
 -- | Given an initial polish expression, apply a sequence of n random moves and
 -- compute the average of the magnitude of increment of cost at each move.
--- TODO
-computeMoveIncrAvg :: Random.GenIO -> Problem -> PolishExpression -> Double
+computeMoveIncrAvg :: (MonadIO m) => Random.GenIO -> Problem -> PolishExpression -> m Double
 computeMoveIncrAvg = undefined
+
+------------------------------------------------------------------------------
+-- Polish Expression Cost
+
+-- | Computes the cost of the best solution of a polish expression
+computeCost
+  :: (MonadState Problem m)
+  => PolishExpression
+  -> Lambda
+  -> m Cost
+computeCost pe lambda = do
+  let slicingTree = toSlicingTree pe
+  shapeCurves <- getShapeCurves slicingTree
+  scores <- traverse (computeCost' slicingTree) shapeCurves
+  return $ minimum scores
+  where
+    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m Cost
+    computeCost' slicingTree (Coordinate a b, info) = do
+      let moduleShapes = Map.fromList info
+          area = a*b
+      wirelength <- totalWireLength moduleShapes slicingTree
+      return . coerce $ area + (coerce lambda)*(coerce wirelength)
+
+------------------------------------------------------------------------------------
+-- Wirelength
 
 {- Wirelength is an approximation
 
@@ -153,25 +253,6 @@ Slicing tree to slicing floorplan:
 Manhatten distance.
 
 -}
-
--- | Computes the cost of the best solution of a polish expression
-computeCost
-  :: (MonadState Problem m)
-  => PolishExpression
-  -> Lambda
-  -> m Cost
-computeCost pe lambda = do
-  let slicingTree = toSlicingTree pe
-  shapeCurves <- getShapeCurves slicingTree
-  scores <- traverse (computeCost' slicingTree) shapeCurves
-  return $ minimum scores
-  where
-    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m Cost
-    computeCost' slicingTree (Coordinate a b, info) = do
-      let moduleShapes = Map.fromList info
-          area = a*b
-      wirelength <- totalWireLength moduleShapes slicingTree
-      return . coerce $ area + (coerce lambda)*(coerce wirelength)
 
 data BoundingBox = BoundingBox { _bottomLeft :: Coordinate, _topRigth :: Coordinate }
   deriving stock (Show, Eq)
@@ -329,8 +410,8 @@ toPolishExpression tree = PolishExpression (go tree) where
 -- Util
 
 -- | Double generated u.a.r from the range [0,1]
-rand :: Random.GenIO -> IO Double
-rand = Random.uniformRM (0.0, 1.0)
+rand :: MonadIO m => Random.GenIO -> m Double
+rand = liftIO . Random.uniformRM (0.0, 1.0)
 
 problemSize :: Problem -> Int
 problemSize = length . Map.keys . _problem
