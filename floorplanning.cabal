@@ -109,7 +109,8 @@ Test-suite floorplanning-tests
   main-is:              Spec.hs
   hs-source-dirs:       test
 
-  other-modules:
+  other-modules: Test.PolishExpression
+                 Test.SimulatedAnnealing
 
   build-depends:        floorplanning,
                         base              >=4.12     && <4.15,

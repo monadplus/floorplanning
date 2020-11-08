@@ -1,3 +1,13 @@
+{-
+
+* TODO dynamic programming: store the area of each Branch and only update the ones affected by the mov
+
+Nice to have:
+
+* TODO semigroup with a phantom type ?
+* TODO data PEState = Normalized | Unnormalized
+       newtype PolishExpression (n :: PEState) = PolishExpression { _pe :: [Alphabet] }
+-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE BangPatterns #-}
@@ -10,6 +20,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards #-}
 module Lib.SimulatedAnnealing
   ( module Lib.SimulatedAnnealing
   , module Control.Monad.State.Lazy
@@ -18,28 +29,15 @@ module Lib.SimulatedAnnealing
 -----------------------------------------------------------------------------------
 
 import Data.Function (on)
-import Data.Maybe(isJust, fromJust)
-import qualified Data.IntMap.Strict as IMap
+import qualified Data.IntMap.Strict as Map
+import Data.IntMap.Strict (IntMap, (!))
 import Control.Monad.State.Lazy
-import Control.Arrow((&&&))
 import qualified Data.List as List
 import qualified System.Random.MWC as Random
-import Debug.Trace
-
+import Data.Coerce
 import Lib.PolishExpression
 
--- -----------------------------------------------------------------------------------
-
--- {-
-
--- FIXME dynamic programming: store the area of each Branch and only update the ones affected by the move.
--- FIXME wirelength into account
-
--- Nice to have:
--- TODO semigroup with a phantom type ?
--- TODO data PEState = Normalized | Unnormalized
---      newtype PolishExpression (n :: PEState) = PolishExpression { _pe :: [Alphabet] }
--- -}
+-----------------------------------------------------------------------------------
 
 newtype Temperature = Temperature Double deriving newtype (Show, Eq, Ord, Num, Fractional)
 
@@ -49,39 +47,25 @@ newtype Shape = Shape (Width, Height) deriving stock (Show, Eq, Ord)
 pattern Shape' :: Int -> Int -> Shape
 pattern Shape' w h = Shape ((Width w),(Height h))
 
-newtype Area = Area { _area :: Double }  deriving newtype (Show, Eq, Ord, Num, Fractional)
+newtype WireLength = WireLength { _wireLength :: Double }  deriving newtype (Show, Eq, Ord, Num, Fractional)
 newtype AspectRatio = AspectRatio { _aspectRatio :: Double } deriving newtype (Show, Eq, Ord, Num, Fractional)
 
-newtype Score = Score { _score :: Double } deriving newtype (Show, Eq, Ord, Num)
+newtype Cost = Cost { _cost :: Double } deriving newtype (Show, Eq, Ord, Num)
 
-data Coordinate = Coordinate { _x :: Int, _y :: Int }
+-- | Lambda of the cost function: A(alpha) + lambda*W(alpha)
+-- 0 <= Lambda <= 1
+newtype Lambda = Lambda { _lambda :: Double } deriving newtype (Show, Eq, Ord, Num, Fractional)
+-- | Gamma as in section 2.5 Annealing Schedule
+newtype Gamma = Gamma { _gamma :: Double } deriving newtype (Show, Eq, Ord, Num, Fractional)
+-- | Cooling rate as in section 2.5 Annealing Schedule
+newtype CoolingRate = CoolingRate { _coolingRate :: Double } deriving newtype (Show, Eq, Ord, Num, Fractional)
+
+data Coordinate = Coordinate { _x :: Double, _y :: Double }
   deriving stock (Show, Eq, Ord)
 
 newtype Problem = Problem
-  { _problem :: IMap.IntMap ([Shape], [ModuleIndex])
+  { _problem :: IntMap ([Shape], [ModuleIndex])
   }
-
-data SlicingTree where
-    Leaf :: ModuleIndex -> SlicingTree
-    Branch :: SlicingTree -> Operator -> SlicingTree -> SlicingTree
-  deriving stock (Show, Eq)
-
--- | There is a 1-1 correspondence between normalized polish expressions and skewed slicing tress.
-toSlicingTree :: PolishExpression -> SlicingTree
-toSlicingTree =
-  check . go . reverse . _pe
-    where
-      check :: (SlicingTree, [a]) -> SlicingTree
-      check (slicingTree, []) = slicingTree
-      check (_, _) = error "Check toSlicingTree."
-
-      go :: [Alphabet] -> (SlicingTree, [Alphabet])
-      go [] = error "Check toSlicingTree:go."
-      go ((Operand i):xs) = (Leaf i, xs)
-      go ((Operator op):xs) =
-        let (r, xs')  = go xs
-            (l, xs'') = go xs'
-          in (Branch l op r, xs'')
 
 {-
 - Current = Best = 12*3*4*..*n*
@@ -122,15 +106,16 @@ data Variables = Variables
   , _N :: Int
   }
 
+-- TODO
 -- Call with Problem, r=0.85, gamma=2
 -- The Problem should have been previously validated i.e. numbers from 1,2,...,n
--- simulatedAnnealing :: Problem -> Double -> Double -> IO SlicingTree
--- simulatedAnnealing problem r gamma = do
+-- simulatedAnnealing :: Problem -> Lambda -> CoolingRate -> Gamma -> IO SlicingTree
+-- simulatedAnnealing problem lambda r gamma = do
 --   gen <- Random.createSystemRandom
 --   let n = problemSize problem
 --       initial = fromJust $ initialPE n -- FIXME
 --       moveIncrAvg = computeMoveIncrAvg gen initial
---   return undefined   -- TODO
+--   return undefined
 
 -- | Given an initial polish expression, apply a sequence of n random moves and
 -- compute the average of the magnitude of increment of cost at each move.
@@ -138,38 +123,7 @@ data Variables = Variables
 computeMoveIncrAvg :: Random.GenIO -> Problem -> PolishExpression -> Double
 computeMoveIncrAvg = undefined
 
-problemSize :: Problem -> Int
-problemSize = length . IMap.keys . _problem
-
-area :: Shape -> Area
-area (Shape (Width w, Height h)) = Area (fromIntegral (w*h))
-
-aspectRatio :: Shape -> AspectRatio
-aspectRatio (Shape (Width w, Height h)) = AspectRatio (fromIntegral h / fromIntegral w)
-
--- | Computes the best solution w.r.t. the cost function using the algorithm described in [Wong and Liu]
---
--- It takes into account both Area and Wirelength
--- computeBestSolution :: Problem -> SlicingTree -> (Shape, Score, [(ModuleIndex, Shape)])
--- computeBestSolution problem slicingTree =
---   let permutations = evalState (shapeCurves slicingTree) problem
---       allShapes = fmap fst permutations
---       (best, score) = List.foldl' bestShape (undefined, 0 :: Score) allShapes
---       (_, info) = fromJust $ List.find ((==) best . fst) permutations
---   in (best, score, info)
-
---   where
---     bestShape :: (Shape, Score) -> Shape -> (Shape, Score)
---     bestShape old@(_, oldScore) shape =
---             let newScore = objectiveFunction (area shape)
---                 ratio = let r = aspectRatio shape
---                          in if r < 1 then 1/r else r
---             -- TODO aspect ratio as Problem
---              in if (ratio > 2) then old
---                 else if oldScore >= newScore then old
---                      else (shape, newScore)
-
-{- TODO Wirelength is approximated
+{- Wirelength is an approximation
 
 The paper explores all wirelengths of all shape curves using a clever technique.
 I will simplify this by only computing W for the root's shapes computed for the areas.
@@ -184,35 +138,115 @@ I will simplify this by only computing W for the root's shapes computed for the 
 2. Sum (forall modules):
       Compute the eucliean distance to the connected modules
         each distance is multiplied by the #wires between modules (1 in our case)
+
+Slicing tree to slicing floorplan:
+
+                +---+
++---+   +---+   | B |
+| A | + | B | = +---+
++---+   +---+   | A |
+                +---+
++---+   +---+   +---+---+
+| A | * | B | = | A | B |
++---+   +---+   +---+---+
+
+Manhatten distance.
+
 -}
 
+-- | Computes the cost of the best solution of a polish expression
+computeCost
+  :: (MonadState Problem m)
+  => PolishExpression
+  -> Lambda
+  -> m Cost
+computeCost pe lambda = do
+  let slicingTree = toSlicingTree pe
+  shapeCurves <- getShapeCurves slicingTree
+  scores <- traverse (computeCost' slicingTree) shapeCurves
+  return $ minimum scores
+  where
+    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m Cost
+    computeCost' slicingTree (Coordinate a b, info) = do
+      let moduleShapes = Map.fromList info
+          area = a*b
+      wirelength <- totalWireLength moduleShapes slicingTree
+      return . coerce $ area + (coerce lambda)*(coerce wirelength)
 
--- TODO the score should be a linear combination of the area and the wire length
-objectiveFunction :: Area -> Score
-objectiveFunction (Area area') = Score area'
+data BoundingBox = BoundingBox { _bottomLeft :: Coordinate, _topRigth :: Coordinate }
+  deriving stock (Show, Eq)
+pattern BoundingBox' :: Double -> Double -> Double -> Double -> BoundingBox
+pattern BoundingBox' x_bl y_bl x_tr y_tr = BoundingBox (Coordinate x_bl y_bl) (Coordinate x_tr y_tr)
+
+computeCenter :: BoundingBox -> Coordinate
+computeCenter (BoundingBox' x_bl y_bl x_tr y_tr) = Coordinate ((x_bl + x_tr)/2) ((y_bl + y_tr)/2)
+
+totalWireLength
+  :: (MonadState Problem m)
+  => IntMap Shape -- For each module, the chosen shape (this comes from the curveShapes associated info)
+  -> SlicingTree
+  -> m WireLength
+totalWireLength moduleShapes slicingTree = do
+  let boundingBoxes = getBoundingBoxes moduleShapes slicingTree
+      centers = computeCenter <$> boundingBoxes
+  Problem problem <- get
+  return $ Map.foldlWithKey' (go centers) (0 :: WireLength) problem
+    where
+      go :: IntMap Coordinate -> WireLength -> ModuleIndex -> ([Shape], [ModuleIndex]) -> WireLength
+      go centers !acc moduleIndex (_, connections) =
+        let getCenter i = centers ! i
+            c1 = getCenter moduleIndex
+            -- Avoid double counting distances
+            f acc moduleIndex2
+              | moduleIndex2 > moduleIndex = (+ acc) . coerce . manhattanDistance c1 . getCenter $ moduleIndex2
+              | otherwise = acc
+         in acc + List.foldl' f (0 :: WireLength) connections
+
+-- | Returns the bounding box coordinates of each module.
+getBoundingBoxes :: IntMap Shape -> SlicingTree -> IntMap BoundingBox
+getBoundingBoxes moduleShapes = Map.fromList . snd  . go (Coordinate 0 0)
+  where
+    getShape moduleIndex = moduleShapes ! moduleIndex
+    getTopRight (Coordinate x y) (Shape' w h) = Coordinate (x + fromIntegral w) (y + fromIntegral h)
+   
+    go :: Coordinate -> SlicingTree -> (BoundingBox, [(ModuleIndex, BoundingBox)])
+    go bottomLeft (Leaf moduleIndex) =
+      let topRight = getTopRight bottomLeft (getShape moduleIndex)
+          boundingBox = BoundingBox bottomLeft topRight
+       in (boundingBox, [(moduleIndex, boundingBox)])
+    go bottomLeft (Branch l V r) =
+      let (BoundingBox bl@(Coordinate _ y1) (Coordinate x2 _), info1) = go bottomLeft l
+          (BoundingBox _ tr, info2) = go (Coordinate x2 y1) r
+       in (BoundingBox bl tr, info1 ++ info2)
+    go bottomLeft (Branch l H r) =
+      let (BoundingBox bl@(Coordinate x1 _) (Coordinate _ y2), info1) = go bottomLeft l
+          (BoundingBox _ tr, info2) = go (Coordinate x1 y2) r
+       in (BoundingBox bl tr, info1 ++ info2)
+
 
 -----------------------------------------------------------------------------------
 -- Shape Curves
 
+--             shape of the curve
 type ShapeCurve = (Coordinate, [(ModuleIndex, Shape)])
 type ShapeCurves = [ShapeCurve]
 
-shapeCurves
+getShapeCurves
   :: (MonadState Problem m)
   => SlicingTree
   -> m ShapeCurves
-shapeCurves (Leaf moduleIndex) = do
+getShapeCurves (Leaf moduleIndex) = do
   let sort' = List.sortBy (compare `on` (_x . fst))
       toShapeCurves shape@(Shape (Width w, Height h)) =
-        (Coordinate {_x = w, _y = h}, [(moduleIndex, shape)])
+        (Coordinate {_x = fromIntegral w, _y = fromIntegral h}, [(moduleIndex, shape)])
   sort' . (fmap toShapeCurves) <$> getShapes moduleIndex
-shapeCurves (Branch left op right) = do
-  l <- shapeCurves left
-  r <- shapeCurves right
+getShapeCurves (Branch left op right) = do
+  l <- getShapeCurves left
+  r <- getShapeCurves right
   return (combineShapeCurves op l r)
 
 getShapes :: (MonadState Problem m) => ModuleIndex -> m [Shape]
-getShapes i = gets (\(Problem s) -> fst $ s IMap.! i)
+getShapes i = gets (\(Problem s) -> fst $ s ! i)
 
 combineShapeCurves
   :: Operator
@@ -241,7 +275,7 @@ combineShapeCurves op l r =
 
       -- This only works if curves are sorted in 'x' increasing order for H
       -- and 'y' increasing order for V
-      intersection :: (Coordinate -> Int) -> ShapeCurves -> Coordinate -> ShapeCurve
+      intersection :: (Coordinate -> Double) -> ShapeCurves -> Coordinate -> ShapeCurve
       intersection f (x:xs) c1 = go x xs where
         go previous [] = previous
         go previous (next@(c2, _):rest)
@@ -262,8 +296,48 @@ combineShapeCurves op l r =
           less (Coordinate x1 _, _) (Coordinate x2 _, _) = x1 < x2
 
 ---------------------------------------------------------------------
+-- Slicing Tree
+
+data SlicingTree where
+    Leaf :: ModuleIndex -> SlicingTree
+    Branch :: SlicingTree -> Operator -> SlicingTree -> SlicingTree
+  deriving stock (Show, Eq)
+
+-- | There is a 1-1 correspondence between normalized polish expressions and skewed slicing tress.
+toSlicingTree :: PolishExpression -> SlicingTree
+toSlicingTree =
+  check . go . reverse . _pe
+    where
+      check :: (SlicingTree, [a]) -> SlicingTree
+      check (slicingTree, []) = slicingTree
+      check (_, _) = error "Check toSlicingTree."
+
+      go :: [Alphabet] -> (SlicingTree, [Alphabet])
+      go [] = error "Check toSlicingTree:go."
+      go ((Operand i):xs) = (Leaf i, xs)
+      go ((Operator op):xs) =
+        let (r, xs')  = go xs
+            (l, xs'') = go xs'
+          in (Branch l op r, xs'')
+
+toPolishExpression :: SlicingTree -> PolishExpression
+toPolishExpression tree = PolishExpression (go tree) where
+  go (Leaf moduleIndex) = [Operand moduleIndex]
+  go (Branch l op r) = go l ++ go r ++ [Operator op]
+
+---------------------------------------------------------------------
 -- Util
 
 -- | Double generated u.a.r from the range [0,1]
 rand :: Random.GenIO -> IO Double
 rand = Random.uniformRM (0.0, 1.0)
+
+problemSize :: Problem -> Int
+problemSize = length . Map.keys . _problem
+
+aspectRatio :: Shape -> AspectRatio
+aspectRatio (Shape (Width w, Height h)) = AspectRatio (fromIntegral h / fromIntegral w)
+
+manhattanDistance :: Coordinate -> Coordinate -> Double
+manhattanDistance (Coordinate x1 y1) (Coordinate x2 y2) =
+  abs (x1 - x2) + abs (y1 - y2)
