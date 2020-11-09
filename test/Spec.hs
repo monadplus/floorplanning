@@ -1,6 +1,6 @@
 module Main (main) where
 
-import           System.IO  (hSetEncoding, stderr, stdout, utf8)
+import           System.IO
 import           Test.Hspec
 
 import Test.PolishExpression
@@ -10,6 +10,7 @@ main :: IO ()
 main = do
     hSetEncoding stdout utf8
     hSetEncoding stderr utf8
+    hSetBuffering stdout NoBuffering
     hspec allUnitTests
 
 allUnitTests :: Spec

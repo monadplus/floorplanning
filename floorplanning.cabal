@@ -45,11 +45,13 @@ Library
                       bytestring     >=0.10.8.2 && <0.11.0.0,
                       containers     >=0.5.0.1  && <0.7,
                       deepseq        >=1.4      && <1.5,
+                      generic-lens   >=2.0.0.0  && <2.1.0.0,
                       microlens      >=0.4.11   && <0.4.12,
                       microlens-mtl  >=0.2      && <0.3,
                       microlens-th   >=0.4.3    && <0.4.4,
                       mtl            >=2.2.0    && <2.3,
                       mwc-random     >=0.15.0.0 && <0.16.0.0,
+                      time           >=1.9      && <1.10,
                       text           >=1.2.3.0  && <2.0.0.0,
                       vector         >=0.11.0.0 && <0.13.0.0
 
@@ -62,49 +64,11 @@ Library
                       -Wpartial-fields
                       -fhide-source-paths
                       -freverse-errors
+                      -Wno-name-shadowing
   if impl(ghc >= 8.8.1)
     ghc-options:      -Wmissing-deriving-strategies
                       -Werror=missing-deriving-strategies
-
-  default-extensions: AllowAmbiguousTypes
-                      BangPatterns
-                      ConstraintKinds
-                      DataKinds
-                      DefaultSignatures
-                      DeriveAnyClass
-                      DeriveDataTypeable
-                      DeriveFoldable
-                      DeriveFunctor
-                      DeriveGeneric
-                      DeriveTraversable
-                      DerivingStrategies
-                      DerivingVia
-                      DuplicateRecordFields
-                      EmptyCase
-                      EmptyDataDecls
-                      FlexibleContexts
-                      FlexibleInstances
-                      FunctionalDependencies
-                      GADTs
-                      GeneralizedNewtypeDeriving
-                      InstanceSigs
-                      KindSignatures
-                      LambdaCase
-                      NamedFieldPuns
-                      OverloadedStrings
-                      PolyKinds
-                      QuasiQuotes
-                      RankNTypes
-                      RecordWildCards
-                      ScopedTypeVariables
-                      StandaloneDeriving
-                      TemplateHaskell
-                      TupleSections
-                      TypeApplications
-                      TypeFamilies
-                      TypeOperators
-                      UndecidableInstances
-                      RoleAnnotations
+                      -Werror=unused-matches
 
 Test-suite floorplanning-tests
   default-language:     Haskell2010
@@ -135,46 +99,6 @@ Test-suite floorplanning-tests
     ghc-options:        -Wmissing-deriving-strategies
                         -Werror=missing-deriving-strategies
 
-  default-extensions:   AllowAmbiguousTypes
-                        BangPatterns
-                        ConstraintKinds
-                        DataKinds
-                        DefaultSignatures
-                        DeriveAnyClass
-                        DeriveDataTypeable
-                        DeriveFoldable
-                        DeriveFunctor
-                        DeriveGeneric
-                        DeriveTraversable
-                        DerivingStrategies
-                        DerivingVia
-                        DuplicateRecordFields
-                        EmptyCase
-                        EmptyDataDecls
-                        FlexibleContexts
-                        FlexibleInstances
-                        FunctionalDependencies
-                        GADTs
-                        GeneralizedNewtypeDeriving
-                        InstanceSigs
-                        KindSignatures
-                        LambdaCase
-                        NamedFieldPuns
-                        OverloadedStrings
-                        PolyKinds
-                        QuasiQuotes
-                        RankNTypes
-                        RecordWildCards
-                        ScopedTypeVariables
-                        StandaloneDeriving
-                        TemplateHaskell
-                        TupleSections
-                        TypeApplications
-                        TypeFamilies
-                        TypeOperators
-                        UndecidableInstances
-                        RoleAnnotations
-                       
 Benchmark floorplanning-bench
   default-language: Haskell2010
   type:           exitcode-stdio-1.0

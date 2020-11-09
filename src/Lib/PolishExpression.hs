@@ -9,6 +9,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Lib.PolishExpression
   ( module Lib.PolishExpression,
@@ -84,7 +85,7 @@ perturbateN n pe = do
   gen <- liftIO $ Random.createSystemRandom
   go n gen pe
   where
-    go 0 gen pe = return pe
+    go 0 _ pe = return pe
     go n gen pe = do
       pe' <- perturbate gen pe
       go (n - 1) gen pe'
@@ -103,7 +104,7 @@ move1' i pe = go i `over` pe
     go _ [] = error "unexpected index"
     go 0 (x@(Operator _) : xs) = x : go 0 xs
     go 0 (e1 : xs) =
-      let (xs', (e2 : rest)) = span isOperator xs -- OK by construction
+      let (xs', (e2 : rest)) = span isOperator xs
        in e2 : (xs' ++ (e1 : rest))
     go n (x : xs) = x : go (if isOperand x then n - 1 else n) xs
 
@@ -173,6 +174,7 @@ move3 gen pe = liftIO $ do
           if r < 2
             then return $ Just (e2 : e1 : rest)
             else next count xs
+        doWithProb _ _ = error "Check move3.doWithProb"
 
         next count (e1@(Operator _) : e2@(Operator _) : rest) = fmap ([e1, e2] ++) <$> trySwap' (count - 2) rest
         next count (e1@(Operand _) : e2@(Operand _) : rest) = fmap ([e1, e2] ++) <$> trySwap' (count + 2) rest

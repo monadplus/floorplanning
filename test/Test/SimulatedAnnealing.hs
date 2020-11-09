@@ -14,10 +14,11 @@ import Test.Hspec
 simulatedAnnealingSpec :: Spec
 simulatedAnnealingSpec =
   describe "Simulated Annealing Tests" $ do
-    shapeCurvesSpec
-    slicingTreeSpec
-    wireLengthSpec
-    costSpec
+    -- shapeCurvesSpec
+    -- slicingTreeSpec
+    -- wireLengthSpec
+    -- costSpec
+    annealingSpec
 
 shapeCurvesSpec :: Spec
 shapeCurvesSpec = describe "Shape Curves" $ do
@@ -194,9 +195,12 @@ wireLengthSpec = describe "Wire Length" $ do
           expected = (20.0 :: WireLength)
       result `shouldBe` expected
 
--- TODO cost on multiple shapes
 costSpec :: Spec
 costSpec = describe "Cost" $ do
+
+  let Just ari =
+        mkInterval (AspectRatio 0.5, AspectRatio 3)
+
   it "should return the cost of a polish expression" $ do
     {- Reusing the wirelenght of wireLengthSpec
       +--------+---+
@@ -216,7 +220,7 @@ costSpec = describe "Cost" $ do
                   (4, ([Shape' 2 2], [2, 5])),
                   (5, ([Shape' 2 3], [1, 4]))
                 ]
-        result = evalState (computeCost pe (0.5 :: Lambda)) problem
+        result = evalState (computeCost pe ari (0.5 :: Lambda)) problem
         expected = Cost (5*6 + 0.5*20.0) -- 40
     result `shouldBe` expected
   it "should return the cost of a polish expression with multiple shapes" $ do
@@ -232,6 +236,34 @@ costSpec = describe "Cost" $ do
                   (4, ([Shape' 2 2], [2, 5])),
                   (5, ([Shape' 1 2, Shape' 2 3], [1, 4]))
                 ]
-        result = evalState (computeCost pe (0.5 :: Lambda)) problem
+        result = evalState (computeCost pe ari (0.5 :: Lambda)) problem
         expected = Cost 34.5
     result `shouldBe` expected
+
+annealingSpec :: Spec
+annealingSpec = describe "Annealing Schedule" $ do
+  describe "avgIncrementByMove" $ do
+    it "should return an approximated average increment move" $ do
+      let problem =
+            Problem $
+                Map.fromList
+                  [ (1, ([Shape' 2 3], [2, 3, 5])),
+                    (2, ([Shape' 2 3], [1, 3, 4])),
+                    (3, ([Shape' 4 2], [1, 2])),
+                    (4, ([Shape' 2 2], [2, 5])),
+                    (5, ([Shape' 2 3], [1, 4]))
+                  ]
+          Just pe = initialPE 5
+          Just lambda = mkLambda 1.0
+          Just ari = mkInterval (AspectRatio 0.5, AspectRatio 3)
+      gen' <- createSystemRandom
+      incr <- avgIncrementByMove gen' lambda ari problem pe
+      incr `shouldSatisfy` (> 0)
+      incrs <- replicateM 100 $ avgIncrementByMove gen' lambda ari problem pe
+      forM_ incrs $ flip shouldSatisfy (isInConfidenceInterval 1.5 incr)
+
+-- | Is x2 \in [x1-(x1*p), x1+(x1*p)] ?
+isInConfidenceInterval :: Double -> Double -> Double -> Bool
+isInConfidenceInterval p x1 x2
+  | x1 - (x1*p) < x2 && x2 < x1 + (x1*p) = True
+  | otherwise = False
