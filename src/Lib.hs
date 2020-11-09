@@ -79,9 +79,13 @@ Problem:
 
 -}
 module Lib
-  ( module Lib.PolishExpression
+  ( module Lib.Pretty
+  , module Lib.PolishExpression
   , module Lib.SimulatedAnnealing
+  , module Lib.SlicingTree
   ) where
 
 import Lib.PolishExpression
+import Lib.Pretty
 import Lib.SimulatedAnnealing
+import Lib.SlicingTree

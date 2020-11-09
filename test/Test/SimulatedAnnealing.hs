@@ -14,10 +14,10 @@ import Test.Hspec
 simulatedAnnealingSpec :: Spec
 simulatedAnnealingSpec =
   describe "Simulated Annealing Tests" $ do
-    -- shapeCurvesSpec
-    -- slicingTreeSpec
-    -- wireLengthSpec
-    -- costSpec
+    shapeCurvesSpec
+    slicingTreeSpec
+    wireLengthSpec
+    costSpec
     annealingSpec
 
 shapeCurvesSpec :: Spec
@@ -260,10 +260,10 @@ annealingSpec = describe "Annealing Schedule" $ do
       incr <- avgIncrementByMove gen' lambda ari problem pe
       incr `shouldSatisfy` (> 0)
       incrs <- replicateM 100 $ avgIncrementByMove gen' lambda ari problem pe
-      forM_ incrs $ flip shouldSatisfy (isInConfidenceInterval 1.5 incr)
+      forM_ incrs $ flip shouldSatisfy (inConfidenceInterval 1.5 incr)
 
 -- | Is x2 \in [x1-(x1*p), x1+(x1*p)] ?
-isInConfidenceInterval :: Double -> Double -> Double -> Bool
-isInConfidenceInterval p x1 x2
+inConfidenceInterval :: Double -> Double -> Double -> Bool
+inConfidenceInterval p x1 x2
   | x1 - (x1*p) < x2 && x2 < x1 + (x1*p) = True
   | otherwise = False

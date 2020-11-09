@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -13,17 +14,18 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TupleSections #-}
 
 module Lib.SimulatedAnnealing
   ( module Lib.SimulatedAnnealing,
     module Control.Monad.State.Lazy,
+    ModuleIndex
   )
 where
 
@@ -42,21 +44,9 @@ import GHC.Generics
 import Lens.Micro.Mtl
 import Lens.Micro.TH
 import Lib.PolishExpression
-import Text.Printf(printf)
+import Lib.SlicingTree
 import qualified System.Random.MWC as Random
-
------------------------------------------------------------------------------------
-
-{-
-
-* TODO dynamic programming: store the area of each Branch and only update the ones affected by the mov
-
-Nice to have:
-
-* TODO semigroup with a phantom type ?
-* TODO data PEState = Normalized | Unnormalized
-       newtype PolishExpression (n :: PEState) = PolishExpression { _pe :: [Alphabet] }
--}
+import Text.Printf (printf)
 
 -----------------------------------------------------------------------------------
 
@@ -78,7 +68,7 @@ newtype AspectRatio = AspectRatio {_aspectRatio :: Double}
   deriving newtype (Show, Eq, Ord, Num, Fractional)
 
 -- Hide constructor
-newtype Interval a = Interval { _interval :: (a, a) }
+newtype Interval a = Interval {_interval :: (a, a)}
   deriving newtype (Show, Eq)
 
 mkInterval :: (Ord a) => (a, a) -> Maybe (Interval a)
@@ -109,7 +99,7 @@ newtype Gamma = Gamma {_gamma :: Int} deriving newtype (Show, Eq, Ord, Num)
 
 -- | Slides suggest 5-10
 defaultGamma :: Gamma
-defaultGamma = 5
+defaultGamma = 10
 
 -- | Cooling rate as in section 2.5 Annealing Schedule
 newtype CoolingRate = CoolingRate {_coolingRate :: Double} -- hide constructor
@@ -122,7 +112,7 @@ mkCoolingRate d
   | otherwise = Nothing
 
 defaultCoolingRate :: CoolingRate
-defaultCoolingRate = 0.85
+defaultCoolingRate = 0.75
 
 data Coordinate = Coordinate {_x :: Double, _y :: Double}
   deriving stock (Show, Eq, Ord)
@@ -148,11 +138,26 @@ validateProblem problem = do
     unless (length (List.nub connections) == List.length connections) $ Left "Connection repeated."
   return $ Problem problem
 
+---------------------------------------------------------------------
+-- Annealing Schedule
+
+
+data BoundingBox = BoundingBox {_bottomLeft :: Coordinate, _topRigth :: Coordinate}
+  deriving stock (Show, Eq)
+
+type BoundingBoxes = IntMap BoundingBox
+
+pattern BoundingBox' :: Double -> Double -> Double -> Double -> BoundingBox
+pattern BoundingBox' x_bl y_bl x_tr y_tr = BoundingBox (Coordinate x_bl y_bl) (Coordinate x_tr y_tr)
+
+computeCenter :: BoundingBox -> Coordinate
+computeCenter (BoundingBox' x_bl y_bl x_tr y_tr) = Coordinate ((x_bl + x_tr) / 2) ((y_bl + y_tr) / 2)
+
+newtype Floorplan = Floorplan { _floorplan :: BoundingBoxes }
+
 data Variables = Variables
-  { _best :: PolishExpression,
-    _bestCost :: Cost,
-    _current :: PolishExpression,
-    _currentCost :: Cost,
+  { _best :: (PolishExpression, Cost, BoundingBoxes),
+    _current :: (PolishExpression, Cost, BoundingBoxes),
     _currentTmp :: Temperature,
     _finalTmp :: Temperature,
     _gen :: Random.GenIO,
@@ -174,43 +179,39 @@ simulatedAnnealing ::
   Lambda ->
   CoolingRate ->
   Gamma ->
-  m SlicingTree
+  m Floorplan
 simulatedAnnealing problem aspectRatio lambda r gamma = do
   let n = problemSize problem
   initial <- case initialPE n of
     Nothing -> liftIO $ fail "Too small problem"
     Just pe -> return pe
-  initialCost <- evalStateT (computeCost initial DAlways lambda) problem
+  (initialCost, initialBB) <- evalStateT (computeCost initial DAlways lambda) problem
   _gen <- liftIO $ Random.createSystemRandom
   moveIncrAvg <- avgIncrementByMove _gen lambda problem initial
   liftIO $ putStrLn "Avg Increment finished"
   _startTime <- liftIO $ Clock.getCurrentTime
   let p = (0.98 :: Double) -- Probability of acceptance at high-temperature.
       _currentTmp = coerce $ (- moveIncrAvg) / log p -- log = ln
-      _finalTmp = coerce $ (r ^ (10 :: Int)) * (coerce _currentTmp) -- 10 outer loop iterations (arbitrary)
+      _finalTmp = coerce $ (r ^ (30 :: Int)) * (coerce _currentTmp) -- 10 outer loop iterations (arbitrary)
       _bigN = n * (coerce gamma)
-      _current = initial
-      _currentCost = initialCost
-      _best = initial
-      _bestCost = initialCost
+      _current = (initial, initialCost, initialBB)
+      _best = (initial, initialCost, initialBB)
       _moves = 0
       _downhill = 0
       _rejects = 0
   runAnnealing Variables {..}
   where
-    runComputeCost :: (MonadIO m) => PolishExpression -> m (Maybe Cost)
+    runComputeCost :: (MonadIO m) => PolishExpression -> m (Maybe (Cost, BoundingBoxes))
     runComputeCost pe = evalStateT (computeCost pe (DSometimes aspectRatio) lambda) problem
 
-    runAnnealing :: (MonadIO m) => Variables -> m SlicingTree
+    runAnnealing :: (MonadIO m) => Variables -> m Floorplan
     runAnnealing variables = do
       Variables {..} <- execStateT (outerLoop 1) variables
-      return $ toSlicingTree _best
+      let (_, _, boundingBoxes) = _best
+      return (Floorplan boundingBoxes)
 
     started :: MonadIO m => Int -> m ()
-    started = liftIO . printf "Iteration %d: started"
-
-    finished :: MonadIO m => Int -> m ()
-    finished = liftIO . printf "Iteration %d: finished"
+    started = liftIO . printf "=== Iteration %d: started ===\n"
 
     outerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
     outerLoop !it = do
@@ -222,7 +223,6 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
         moves .= 0
         rejects .= 0
         downhill .= 0
-        finished it
         outerLoop (it + 1)
 
     -- The reject rate is too high because
@@ -235,35 +235,31 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
       let rejectRate = (fromIntegral _rejects / fromIntegral _moves) :: Double
           timeDiff = Clock.diffUTCTime currentTime _startTime
           timeOutAfter = (300 :: Clock.NominalDiffTime) -- 5 minutes
+      when (timeDiff > timeOutAfter) $ liftIO (putStrLn "Time out!")
       return (rejectRate > 0.95 || _currentTmp < _finalTmp || timeDiff > timeOutAfter)
 
     innerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
     innerLoop !it = do
-      started it
       Variables {..} <- get
-      newPE <- perturbate _gen _current
-      newCost' <- runComputeCost newPE
+      newPE <- perturbate _gen (fst3 _current)
+      newSolution <- runComputeCost newPE
       moves += 1
-      case newCost' of
+      case newSolution of
         Nothing ->
           rejects += 1
-        Just newCost -> do
-          let incrCost = newCost - _currentCost
+        Just (newCost, newBB) -> do
+          let incrCost = newCost - (snd3 _current)
           randomValue <- rand
           let alpha = coerce $ exp (- incrCost / (coerce _currentTmp)) :: Double
           if incrCost <= 0 || randomValue < alpha
             then do
               when (incrCost < 0) $ downhill += 1
-              current .= newPE
-              currentCost .= newCost
-              when (newCost < _bestCost) $ do
-                best .= newPE
-                bestCost .= newCost
+              current .= (newPE, newCost, newBB)
+              when (newCost < (snd3 _best)) $ do
+                best .= (newPE, newCost, newBB)
             else rejects += 1
       stop <- innerStopCondition
-      unless stop $ do
-        finished it
-        innerLoop (it + 1)
+      unless stop $ innerLoop (it + 1)
 
     innerStopCondition :: (MonadState Variables m) => m Bool
     innerStopCondition = do
@@ -272,16 +268,16 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
 
 -- | Given an initial polish expression, apply a sequence of n random moves and
 -- compute the average of the magnitude of increment of cost at each move.
-avgIncrementByMove
-  :: MonadIO m
-  => Random.GenIO
-  -> Lambda
-  -> Problem
-  -> PolishExpression
-  -> m Double
+avgIncrementByMove ::
+  MonadIO m =>
+  Random.GenIO ->
+  Lambda ->
+  Problem ->
+  PolishExpression ->
+  m Double
 avgIncrementByMove gen lambda problem initialPE = flip evalStateT problem $ do
-  let n = 50 -- #perturbations to approximate the average
-      getCost pe = computeCost pe DAlways lambda
+  let n = 100 -- #perturbations to approximate the average
+      getCost pe = fst <$> computeCost pe DAlways lambda
   initialCost <- getCost initialPE
   perturbationsCosts <- replicateM n (getCost =<< perturbate gen initialPE)
   return . average . fmap (coerce . abs . subtract initialCost) $ perturbationsCosts
@@ -290,32 +286,34 @@ avgIncrementByMove gen lambda problem initialPE = flip evalStateT problem $ do
 -- Polish Expression Cost
 
 -- | Computes the cost of the best solution of a polish expression
-computeCost
-  :: (MonadState Problem m)
-  => PolishExpression
-  -> DReturn r (Interval AspectRatio)
-  -> Lambda
-  -> m (Maybe' r Cost)
+computeCost ::
+  (MonadState Problem m) =>
+  PolishExpression ->
+  DReturn r (Interval AspectRatio) ->
+  Lambda ->
+  m (Maybe' r (Cost, BoundingBoxes))
 computeCost pe dReturn lambda = do
   let slicingTree = toSlicingTree pe
   case dReturn of
     DAlways -> do
       scores <- traverse (computeCost' slicingTree) =<< getShapeCurves slicingTree
-      return $ minimum scores
+      return $ List.minimumBy (compare `on` fst) scores
     DSometimes aspectRatioInterval -> do
       let checkAspectRatio (Coordinate x y, _) = inside aspectRatioInterval $ AspectRatio (y / x)
       shapeCurves <- filter checkAspectRatio <$> getShapeCurves slicingTree
       case shapeCurves of
         [] -> return Nothing
-        _  -> do scores <- traverse (computeCost' slicingTree) shapeCurves
-                 return $ Just (minimum scores)
+        _ -> do
+          scores <- traverse (computeCost' slicingTree) shapeCurves
+          return $ Just (List.minimumBy (compare `on` fst) scores)
   where
-    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m Cost
+    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m (Cost, BoundingBoxes)
     computeCost' slicingTree (Coordinate a b, info) = do
       let moduleShapes = Map.fromList info
+          boundingBoxes = getBoundingBoxes moduleShapes slicingTree
           area = a * b
-      wirelength <- totalWireLength moduleShapes slicingTree
-      return . coerce $ area + (coerce lambda) * (coerce wirelength)
+      wirelength <- totalWireLength boundingBoxes
+      return . (,boundingBoxes) . coerce $ area + (coerce lambda) * (coerce wirelength)
 
 ------------------------------------------------------------------------------------
 -- Wirelength
@@ -351,24 +349,12 @@ Manhatten distance.
 
 -}
 
-data BoundingBox = BoundingBox {_bottomLeft :: Coordinate, _topRigth :: Coordinate}
-  deriving stock (Show, Eq)
-
-pattern BoundingBox' :: Double -> Double -> Double -> Double -> BoundingBox
-pattern BoundingBox' x_bl y_bl x_tr y_tr = BoundingBox (Coordinate x_bl y_bl) (Coordinate x_tr y_tr)
-
-computeCenter :: BoundingBox -> Coordinate
-computeCenter (BoundingBox' x_bl y_bl x_tr y_tr) = Coordinate ((x_bl + x_tr) / 2) ((y_bl + y_tr) / 2)
-computeCenter _ = undefined
-
 totalWireLength ::
   (MonadState Problem m) =>
-  IntMap Shape -> -- For each module, the chosen shape (this comes from the curveShapes associated info)
-  SlicingTree ->
+  BoundingBoxes ->
   m WireLength
-totalWireLength moduleShapes slicingTree = do
-  let boundingBoxes = getBoundingBoxes moduleShapes slicingTree
-      centers = computeCenter <$> boundingBoxes
+totalWireLength boundingBoxes = do
+  let centers = computeCenter <$> boundingBoxes
   Problem problem <- get
   return $ Map.foldlWithKey' (go centers) (0 :: WireLength) problem
   where
@@ -383,7 +369,7 @@ totalWireLength moduleShapes slicingTree = do
        in acc + List.foldl' f (0 :: WireLength) connections
 
 -- | Returns the bounding box coordinates of each module.
-getBoundingBoxes :: IntMap Shape -> SlicingTree -> IntMap BoundingBox
+getBoundingBoxes :: IntMap Shape -> SlicingTree -> BoundingBoxes
 getBoundingBoxes moduleShapes = Map.fromList . snd . go (Coordinate 0 0)
   where
     getShape moduleIndex = moduleShapes ! moduleIndex
@@ -479,37 +465,6 @@ combineShapeCurves op l r =
         less (Coordinate x1 _, _) (Coordinate x2 _, _) = x1 < x2
 
 ---------------------------------------------------------------------
--- Slicing Tree
-
-data SlicingTree where
-  Leaf :: ModuleIndex -> SlicingTree
-  Branch :: SlicingTree -> Operator -> SlicingTree -> SlicingTree
-  deriving stock (Show, Eq)
-
--- | There is a 1-1 correspondence between normalized polish expressions and skewed slicing tress.
-toSlicingTree :: PolishExpression -> SlicingTree
-toSlicingTree =
-  check . go . reverse . _pe
-  where
-    check :: (SlicingTree, [a]) -> SlicingTree
-    check (slicingTree, []) = slicingTree
-    check (_, _) = error "Check toSlicingTree."
-
-    go :: [Alphabet] -> (SlicingTree, [Alphabet])
-    go [] = error "Check toSlicingTree:go."
-    go ((Operand i) : xs) = (Leaf i, xs)
-    go ((Operator op) : xs) =
-      let (r, xs') = go xs
-          (l, xs'') = go xs'
-       in (Branch l op r, xs'')
-
-toPolishExpression :: SlicingTree -> PolishExpression
-toPolishExpression tree = PolishExpression (go tree)
-  where
-    go (Leaf moduleIndex) = [Operand moduleIndex]
-    go (Branch l op r) = go l ++ go r ++ [Operator op]
-
----------------------------------------------------------------------
 
 class HasGen (s :: Type) (m :: Type -> Type) where
   getGen :: m Random.GenIO
@@ -551,3 +506,12 @@ average xs =
    in x / fromIntegral n
   where
     go !(!n, !acc) x = (n + 1, acc + x)
+
+fst3 :: (a, b, c) -> a
+fst3 (a, _, _) = a
+
+snd3 :: (a, b, c) -> b
+snd3 (_, b, _) = b
+
+thrd3 :: (a, b, c) -> c
+thrd3 (_, _, c) = c
