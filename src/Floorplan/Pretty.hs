@@ -2,7 +2,7 @@
 
 module Floorplan.Pretty
   ( pretty,
-    prettyPrint,
+    prettyPrint
   )
 where
 
@@ -12,6 +12,7 @@ import Data.Matrix (Matrix)
 import qualified Data.Matrix as Matrix
 import Floorplan.Types
 import Control.Monad.IO.Class
+import Floorplan.PolishExpression
 
 ----------------------------------------------------------
 

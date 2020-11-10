@@ -12,15 +12,20 @@ main = do
   hSetEncoding stdout utf8
   hSetEncoding stderr utf8
 
-  let Just aspectRatioInterval = mkInterval ((AspectRatio 0.5), (AspectRatio 2))
+  let Just aspectRatioInterval = mkInterval ((AspectRatio 0), (AspectRatio 100000))
       Just lambda = mkLambda 1.0
       Right problem =
         validateProblem $
           Map.fromList
-            [ (1, ([Shape' 2 2], [])),
-              (2, ([Shape' 2 2], [])),
-              (3, ([Shape' 2 2], [])),
-              (4, ([Shape' 2 2], []))
+            [ (1, ([Shape' 2 2], [6,7])),
+              (2, ([Shape' 3 3], [3,4,5])),
+              (3, ([Shape' 2 2], [2,8,9])),
+              (4, ([Shape' 4 4], [2,5,6])),
+              (5, ([Shape' 1 3], [2,4,6])),
+              (6, ([Shape' 2 4], [1,4,5])),
+              (7, ([Shape' 1 5], [1,9])),
+              (8, ([Shape' 2 6], [3])),
+              (9, ([Shape' 2 2], [3,7]))
             ]
 
   floorplan <- simulatedAnnealing
@@ -30,18 +35,4 @@ main = do
                  defaultCoolingRate
                  defaultGamma
 
-  prettyPrint floorplan
-
--- oneToTen :: IO ()
--- oneToTen = do
---   Just (rows, _) <- getTerminalSize
---   setCursorPosition (rows `div` 2) 0
---   go 10 rows
---   where
---   go 0 rows = print 0
---   go n rows = do
---     clearScreen
---     print n
---     setCursorPosition (rows `div` 2) 0
---     threadDelay (10^6)
---     go (n - 1) rows
+  return () -- prettyPrint floorplan

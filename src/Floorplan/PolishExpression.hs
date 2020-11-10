@@ -39,15 +39,29 @@ import Floorplan.Types
 -- V: * (original notation)
 -- H: + (original notation)
 data Operator = V | H
-  deriving stock (Show, Eq)
+  deriving stock (Eq)
+
+instance Show Operator where
+  show V = "*"
+  show H = "+"
 
 data Alphabet
   = Operand ModuleIndex
   | Operator Operator
-  deriving stock (Show, Eq)
+  deriving stock (Eq)
+
+instance Show Alphabet where
+  show (Operand i) = show i
+  show (Operator op) = show op
 
 newtype PolishExpression = PolishExpression {_pe :: [Alphabet]}
-  deriving newtype (Show, Eq)
+  deriving newtype (Eq)
+
+instance Show PolishExpression where
+  show (PolishExpression []) = ""
+  show (PolishExpression (e:pe))= List.foldl' go (show e) pe
+    where
+    go acc a = acc ++ (' ' : show a)
 
 -- | Produces the initial polish expression of the form 12*3*...*n*
 --

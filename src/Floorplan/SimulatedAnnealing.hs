@@ -44,8 +44,13 @@ import Lens.Micro.TH
 import Floorplan.PolishExpression
 import Floorplan.SlicingTree
 import Floorplan.Types
+import qualified Floorplan.Pretty as Pretty
 import qualified System.Random.MWC as Random
 import Text.Printf (printf)
+import Prelude hiding (print)
+import qualified Prelude
+import qualified System.Console.ANSI as Console
+import Control.Concurrent
 
 -----------------------------------------------------------------------------------
 
@@ -141,11 +146,11 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
   (initialCost, initialBB) <- evalStateT (computeCost initial DAlways lambda) problem
   _gen <- liftIO $ Random.createSystemRandom
   moveIncrAvg <- avgIncrementByMove _gen lambda problem initial
-  liftIO $ putStrLn "Avg Increment finished"
   _startTime <- liftIO $ Clock.getCurrentTime
   let p = (0.98 :: Double) -- Probability of acceptance at high-temperature.
       _currentTmp = coerce $ (- moveIncrAvg) / log p -- log = ln
-      _finalTmp = coerce $ (r ^ (30 :: Int)) * (coerce _currentTmp) -- 10 outer loop iterations (arbitrary)
+      iterations = 20 :: Int
+      _finalTmp = coerce $ (r ^ iterations) * (coerce _currentTmp)
       _bigN = n * (coerce gamma)
       _current = (initial, initialCost, initialBB)
       _best = (initial, initialCost, initialBB)
@@ -163,12 +168,21 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
       let (_, _, boundingBoxes) = _best
       return (Floorplan boundingBoxes)
 
-    started :: MonadIO m => Int -> m ()
-    started = liftIO . printf "=== Iteration %d: started ===\n"
+    printPartialSolution :: (MonadState Variables m, MonadIO m) => m ()
+    printPartialSolution = do
+      (_, _, boundingBoxes) <- use best
+      liftIO Console.clearScreen
+      terminalSize <- liftIO Console.getTerminalSize
+      case terminalSize of
+        Nothing ->
+          return ()
+        Just (_, _) -> do -- rows columns
+          liftIO $ Console.setCursorPosition 0 0
+          Pretty.prettyPrint (Floorplan boundingBoxes)
+          liftIO $ threadDelay (10^5)
 
     outerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
     outerLoop !it = do
-      started it
       innerLoop 1
       currentTmp *= (coerce r) -- reduce temperature
       stop <- outerStopCondition
@@ -188,7 +202,7 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
       let rejectRate = (fromIntegral _rejects / fromIntegral _moves) :: Double
           timeDiff = Clock.diffUTCTime currentTime _startTime
           timeOutAfter = (300 :: Clock.NominalDiffTime) -- 5 minutes
-      when (timeDiff > timeOutAfter) $ liftIO (putStrLn "Time out!")
+      when (timeDiff > timeOutAfter) $ print "Time out!"
       return (rejectRate > 0.95 || _currentTmp < _finalTmp || timeDiff > timeOutAfter)
 
     innerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
@@ -206,10 +220,11 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
           let alpha = coerce $ exp (- incrCost / (coerce _currentTmp)) :: Double
           if incrCost <= 0 || randomValue < alpha
             then do
-              when (incrCost < 0) $ downhill += 1
+              when (incrCost <= 0) $ downhill += 1
               current .= (newPE, newCost, newBB)
-              when (newCost < (snd3 _best)) $ do
+              when (newCost <= (snd3 _best)) $ do
                 best .= (newPE, newCost, newBB)
+                printPartialSolution
             else rejects += 1
       stop <- innerStopCondition
       unless stop $ innerLoop (it + 1)
@@ -462,3 +477,6 @@ snd3 (_, b, _) = b
 
 thrd3 :: (a, b, c) -> c
 thrd3 (_, _, c) = c
+
+print :: (MonadIO m, Show a) => a -> m ()
+print = liftIO . Prelude.print
