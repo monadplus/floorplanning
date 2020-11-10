@@ -7,8 +7,9 @@ import Data.Foldable
 import Data.Function (on)
 import qualified Data.IntMap.Strict as Map
 import Data.List
-import Lib.PolishExpression
-import Lib.SimulatedAnnealing
+import Floorplan.PolishExpression
+import Floorplan.SimulatedAnnealing
+import Floorplan.SlicingTree
 import Test.Hspec
 
 simulatedAnnealingSpec :: Spec
@@ -16,6 +17,7 @@ simulatedAnnealingSpec =
   describe "Simulated Annealing Tests" $ do
     shapeCurvesSpec
     slicingTreeSpec
+    boundingBoxSpec
     wireLengthSpec
     costSpec
     annealingSpec
@@ -146,6 +148,33 @@ slicingTreeSpec = describe "Slicing Tree" $ do
         polishExpressions = ["12+34*56*++", "12*4*5*6*7*", "123**"]
     traverse_ (runTest . parsePolishExpression') polishExpressions
 
+boundingBoxSpec :: Spec
+boundingBoxSpec = describe "Bounding box" $ do
+  it "should return the bounding box coordinates" $ do
+    let slicingTree =
+          toSlicingTree $ parsePolishExpression' "12*3+45+*"
+
+        moduleShapes =
+          Map.fromList
+            [ (1, Shape' 2 3),
+              (2, Shape' 2 3),
+              (3, Shape' 4 2),
+              (4, Shape' 2 2),
+              (5, Shape' 2 3)
+            ]
+
+        expected =
+          Map.fromList
+            [ (1, BoundingBox' 0 0 2 3),
+              (2, BoundingBox' 2 0 4 3),
+              (3, BoundingBox' 0 3 4 5),
+              (4, BoundingBox' 4 0 6 2),
+              (5, BoundingBox' 4 2 6 5)
+            ]
+        result = getBoundingBoxes moduleShapes slicingTree
+
+    result `shouldBe` expected
+
 wireLengthSpec :: Spec
 wireLengthSpec = describe "Wire Length" $ do
   {-
@@ -156,51 +185,31 @@ wireLengthSpec = describe "Wire Length" $ do
     |   |    | 4 |
     +---+----+---+
   -}
-  let slicingTree = toSlicingTree $ parsePolishExpression' "12*3+45+*"
-      moduleShapes =
+  let boundingBoxes =
         Map.fromList
-          [ (1, Shape' 2 3),
-            (2, Shape' 2 3),
-            (3, Shape' 4 2),
-            (4, Shape' 2 2),
-            (5, Shape' 2 3)
+          [ (1, BoundingBox' 0 0 2 3),
+            (2, BoundingBox' 2 0 4 3),
+            (3, BoundingBox' 0 3 4 5),
+            (4, BoundingBox' 4 0 6 2),
+            (5, BoundingBox' 4 2 6 5)
           ]
 
-  describe "boundingBoxes" $ do
-    it "should return the bounding box coordinates" $ do
-      let result = getBoundingBoxes moduleShapes slicingTree
-          expected =
+  it "should return the total wire length" $ do
+    let problem =
+          Problem $
             Map.fromList
-              [ (1, BoundingBox' 0 0 2 3),
-                (2, BoundingBox' 2 0 4 3),
-                (3, BoundingBox' 0 3 4 5),
-                (4, BoundingBox' 4 0 6 2),
-                (5, BoundingBox' 4 2 6 5)
+              [ (1, ([], [2, 3, 5])),
+                (2, ([], [1, 3, 4])),
+                (3, ([], [1, 2])),
+                (4, ([], [2, 5])),
+                (5, ([], [1, 4]))
               ]
-      result `shouldBe` expected
-
-  describe "totalWireLength" $ do
-    it "should return the total wire length between modules" $ do
-      let problem =
-            Problem $
-              Map.fromList
-                [ (1, ([], [2, 3, 5])),
-                  (2, ([], [1, 3, 4])),
-                  (3, ([], [1, 2])),
-                  (4, ([], [2, 5])),
-                  (5, ([], [1, 4]))
-                ]
-      let result = evalState (totalWireLength moduleShapes slicingTree) problem
-          -- expected computed by hand
-          expected = (20.0 :: WireLength)
-      result `shouldBe` expected
+        result = evalState (totalWireLength boundingBoxes) problem
+        expected = (20.0 :: WireLength) -- expected computed by hand
+    result `shouldBe` expected
 
 costSpec :: Spec
 costSpec = describe "Cost" $ do
-
-  let Just ari =
-        mkInterval (AspectRatio 0.5, AspectRatio 3)
-
   it "should return the cost of a polish expression" $ do
     {- Reusing the wirelenght of wireLengthSpec
       +--------+---+
@@ -210,35 +219,47 @@ costSpec = describe "Cost" $ do
       |   |    | 4 |
       +---+----+---+
     -}
-    let pe = parsePolishExpression' "12*3+45+*"
-        problem =
-           Problem $
-              Map.fromList
-                [ (1, ([Shape' 2 3], [2, 3, 5])),
-                  (2, ([Shape' 2 3], [1, 3, 4])),
-                  (3, ([Shape' 4 2], [1, 2])),
-                  (4, ([Shape' 2 2], [2, 5])),
-                  (5, ([Shape' 2 3], [1, 4]))
-                ]
-        result = evalState (computeCost pe ari (0.5 :: Lambda)) problem
-        expected = Cost (5*6 + 0.5*20.0) -- 40
-    result `shouldBe` expected
+    let problem =
+          Problem $
+            Map.fromList
+              [ (1, ([Shape' 2 3], [2, 3, 5])),
+                (2, ([Shape' 2 3], [1, 3, 4])),
+                (3, ([Shape' 4 2], [1, 2])),
+                (4, ([Shape' 2 2], [2, 5])),
+                (5, ([Shape' 2 3], [1, 4]))
+              ]
+        pe = parsePolishExpression' "12*3+45+*"
+        expectedCost = Cost (5 * 6 + 0.5 * 20.0) -- Computed by hand: 40
+    runCostSpec problem pe expectedCost
+
   it "should return the cost of a polish expression with multiple shapes" $ do
-    let pe = parsePolishExpression' "12*3+45+*"
-        -- Notice the shapes are intentionally smaller on one of the shapes.
-        -- The solver should pick the smallest shape and the solution should be different from the previous test.
-        problem =
-           Problem $
-              Map.fromList
-                [ (1, ([Shape' 2 3, Shape' 1 2], [2, 3, 5])),
-                  (2, ([Shape' 1 2, Shape' 2 3], [1, 3, 4])),
-                  (3, ([Shape' 4 2, Shape' 3 1], [1, 2])),
-                  (4, ([Shape' 2 2], [2, 5])),
-                  (5, ([Shape' 1 2, Shape' 2 3], [1, 4]))
-                ]
-        result = evalState (computeCost pe ari (0.5 :: Lambda)) problem
-        expected = Cost 34.5
-    result `shouldBe` expected
+    -- Notice the shapes are intentionally smaller on one of the shapes.
+    -- The solver should pick the smallest shape and the solution should be different from the previous test.
+    let problem =
+          Problem $
+            Map.fromList
+              [ (1, ([Shape' 2 3, Shape' 1 2], [2, 3, 5])),
+                (2, ([Shape' 1 2, Shape' 2 3], [1, 3, 4])),
+                (3, ([Shape' 4 2, Shape' 3 1], [1, 2])),
+                (4, ([Shape' 2 2], [2, 5])),
+                (5, ([Shape' 1 2, Shape' 2 3], [1, 4]))
+              ]
+        pe = parsePolishExpression' "12*3+45+*"
+        expectedCost = Cost 34.5
+    runCostSpec problem pe expectedCost
+  where
+    runCostSpec :: Problem -> PolishExpression -> Cost -> Expectation
+    runCostSpec problem pe expectedCost = do
+      let Just aspectRatioInterval =
+            mkInterval (AspectRatio 0.5, AspectRatio 3)
+          Just lambda =
+            mkLambda 0.5
+          result = evalState (computeCost pe (DSometimes aspectRatioInterval) lambda) problem
+      case result of
+        Nothing ->
+          expectationFailure "Expected a Cost but nothing returned => Check 'computeCost'."
+        Just (cost, _) ->
+          cost `shouldBe` expectedCost
 
 annealingSpec :: Spec
 annealingSpec = describe "Annealing Schedule" $ do
@@ -246,24 +267,23 @@ annealingSpec = describe "Annealing Schedule" $ do
     it "should return an approximated average increment move" $ do
       let problem =
             Problem $
-                Map.fromList
-                  [ (1, ([Shape' 2 3], [2, 3, 5])),
-                    (2, ([Shape' 2 3], [1, 3, 4])),
-                    (3, ([Shape' 4 2], [1, 2])),
-                    (4, ([Shape' 2 2], [2, 5])),
-                    (5, ([Shape' 2 3], [1, 4]))
-                  ]
+              Map.fromList
+                [ (1, ([Shape' 2 3], [2, 3, 5])),
+                  (2, ([Shape' 2 3], [1, 3, 4])),
+                  (3, ([Shape' 4 2], [1, 2])),
+                  (4, ([Shape' 2 2], [2, 5])),
+                  (5, ([Shape' 2 3], [1, 4]))
+                ]
           Just pe = initialPE 5
           Just lambda = mkLambda 1.0
-          Just ari = mkInterval (AspectRatio 0.5, AspectRatio 3)
       gen' <- createSystemRandom
-      incr <- avgIncrementByMove gen' lambda ari problem pe
+      incr <- avgIncrementByMove gen' lambda problem pe
       incr `shouldSatisfy` (> 0)
-      incrs <- replicateM 100 $ avgIncrementByMove gen' lambda ari problem pe
+      incrs <- replicateM 100 $ avgIncrementByMove gen' lambda problem pe
       forM_ incrs $ flip shouldSatisfy (inConfidenceInterval 1.5 incr)
 
 -- | Is x2 \in [x1-(x1*p), x1+(x1*p)] ?
 inConfidenceInterval :: Double -> Double -> Double -> Bool
 inConfidenceInterval p x1 x2
-  | x1 - (x1*p) < x2 && x2 < x1 + (x1*p) = True
+  | x1 - (x1 * p) < x2 && x2 < x1 + (x1 * p) = True
   | otherwise = False

@@ -2,14 +2,14 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Lib.SlicingTree
+module Floorplan.SlicingTree
   ( SlicingTree (..),
     toSlicingTree,
     toPolishExpression,
   )
 where
 
-import Lib.PolishExpression
+import Floorplan.PolishExpression
 
 data SlicingTree where
   Leaf :: ModuleIndex -> SlicingTree

@@ -2,9 +2,9 @@
 
 module Test.PolishExpression where
 
-import Lib.PolishExpression
-import Test.Hspec
 import Data.Either
+import Floorplan.PolishExpression
+import Test.Hspec
 
 polishExpressionSpec :: Spec
 polishExpressionSpec =
@@ -25,50 +25,47 @@ perturbateSpec = describe "Perturbate" $ do
 moveSpec :: Spec
 moveSpec = describe "Move" $ do
   describe "M1" $ do
-
     it "should swap to adjacents operands" $ do
       let initial = parsePolishExpression' "12*3*4*5*"
-          final   = parsePolishExpression' "13*2*4*5*"
+          final = parsePolishExpression' "13*2*4*5*"
       move1' 1 initial `shouldBe` final
 
     it "should swap to adjacents operands (2)" $ do
       let initial = parsePolishExpression' "12*3*4*5*"
-          final   = parsePolishExpression' "21*3*4*5*"
+          final = parsePolishExpression' "21*3*4*5*"
       move1' 0 initial `shouldBe` final
 
     it "should swap to adjacents operands (3)" $ do
       let initial = parsePolishExpression' "12*3*4*5*"
-          final   = parsePolishExpression' "12*3*5*4*"
+          final = parsePolishExpression' "12*3*5*4*"
       move1' 3 initial `shouldBe` final
 
   describe "M2" $ do
-
     it "should swap to adjacents operands" $ do
       let initial = parsePolishExpression' "12*3*4*5*"
-          final   = parsePolishExpression' "12+3*4*5*"
-          r       = move2' 0 0 initial
+          final = parsePolishExpression' "12+3*4*5*"
+          r = move2' 0 0 initial
       r `shouldBe` final
 
     it "should swap to adjacents operands (2)" $ do
       let initial = parsePolishExpression' "12*3*4*5*"
-          final   = parsePolishExpression' "12+3+4+5+"
-          r       = move2' 0 3 initial
+          final = parsePolishExpression' "12+3+4+5+"
+          r = move2' 0 3 initial
       r `shouldBe` final
 
     it "should swap to adjacents operands (3)" $ do
       let initial = parsePolishExpression' "12*3*4*5*"
-          final   = parsePolishExpression' "12*3+4+5+"
-          r       = move2' 1 2 initial
+          final = parsePolishExpression' "12*3+4+5+"
+          r = move2' 1 2 initial
       r `shouldBe` final
 
     it "should swap to adjacents operands (4)" $ do
       let initial = parsePolishExpression' "12*3*4*5*"
-          final   = parsePolishExpression' "12*3*4*5+"
-          r       = move2' 3 0 initial
+          final = parsePolishExpression' "12*3*4*5+"
+          r = move2' 3 0 initial
       r `shouldBe` final
 
   describe "M3" $ do
-
     it "should swap a pair of adjacent operands and operators" $ do
       let initial = parsePolishExpression' "12+3*"
           final = parsePolishExpression' "123+*" -- only valid permutation

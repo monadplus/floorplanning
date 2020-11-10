@@ -1,6 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 
-module Lib.Pretty
+module Floorplan.Pretty
   ( pretty,
     prettyPrint,
   )
@@ -10,7 +10,7 @@ import qualified Data.IntMap.Strict as Map
 import qualified Data.List as List
 import Data.Matrix (Matrix)
 import qualified Data.Matrix as Matrix
-import Lib.SimulatedAnnealing
+import Floorplan.SimulatedAnnealing
 
 ----------------------------------------------------------
 

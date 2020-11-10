@@ -11,8 +11,8 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Lib.PolishExpression
-  ( module Lib.PolishExpression,
+module Floorplan.PolishExpression
+  ( module Floorplan.PolishExpression,
     Random.createSystemRandom,
   )
 where

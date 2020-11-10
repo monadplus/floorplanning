@@ -7,14 +7,13 @@ license:             MIT
 license-file:        LICENSE
 author:              Arnau Abella
 maintainer:          arnauabella@gmail.com
-copyright:           2020 Arnau Abella
+copyright:           2021 Arnau Abella
 homepage:            https://github.com/monadplus/floorplanning
 bug-reports:         https://github.com/monadplus/floorplanning/issues
 synopsis:
 description:
 category:
 extra-source-files:  README.md
-                     CHANGELOG.md
 tested-with:         GHC == 8.8.3
 
 source-repository head
@@ -37,11 +36,11 @@ Library
   hs-source-dirs:     src
 
   -- TODO move to exposed-modules
-  exposed-modules:    Lib
-                      Lib.PolishExpression
-                      Lib.Pretty
-                      Lib.SimulatedAnnealing
-                      Lib.SlicingTree
+  exposed-modules:    Floorplan
+                      Floorplan.PolishExpression
+                      Floorplan.Pretty
+                      Floorplan.SimulatedAnnealing
+                      Floorplan.SlicingTree
 
   -- other-modules:
 
@@ -115,7 +114,6 @@ Benchmark floorplanning-bench
                   gauge     >=0.2.4    && <0.3
 
   ghc-options:    -Wall
-                  -Wincomplete-uni-patterns
                   -Wincomplete-record-updates
                   -Wcompat
                   -Widentities

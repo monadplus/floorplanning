@@ -1,6 +1,6 @@
 {- Normalized polish expression [Wong and Liu, 1986]
 
-# Problem
+# The Problem
 
 The original problem received a list of triplets:
   (A_i, r_i, s_i)  where A_i is the area
@@ -41,7 +41,6 @@ Moves:
 
 # Simulated Annealing
 
-
 - Current = Best = 12*3*4*..*n*
 - Cooling ratio = r = 0.85
 - ∆_avg = perform random moves and compute the average value fo the magnitude of change in cost per move.
@@ -66,26 +65,15 @@ repeat
      #moves = 0
 until (reject / #moves > 0.95) or (T <= T_final) or OutOfTime
 return Best
-
-# Our problem
-
-To simplify our problem, we made some assumptions:
- * The blocks are rectangular and the shapes are given, at least one per module.
- * At most one connection between modules.
-
-Problem:
-  * adjacency list = [[3,4,5], [1,3,4,5,6], ...]
-  * shape list = [[(3,5),(4,4)], [(2,6),(3,3)], ...]
-
 -}
-module Lib
-  ( module Lib.Pretty
-  , module Lib.PolishExpression
-  , module Lib.SimulatedAnnealing
-  , module Lib.SlicingTree
+module Floorplan
+  ( module Floorplan.Pretty
+  , module Floorplan.PolishExpression
+  , module Floorplan.SimulatedAnnealing
+  , module Floorplan.SlicingTree
   ) where
 
-import Lib.PolishExpression
-import Lib.Pretty
-import Lib.SimulatedAnnealing
-import Lib.SlicingTree
+import Floorplan.PolishExpression
+import Floorplan.Pretty
+import Floorplan.SimulatedAnnealing
+import Floorplan.SlicingTree

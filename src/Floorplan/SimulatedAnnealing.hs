@@ -22,8 +22,8 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 
-module Lib.SimulatedAnnealing
-  ( module Lib.SimulatedAnnealing,
+module Floorplan.SimulatedAnnealing
+  ( module Floorplan.SimulatedAnnealing,
     module Control.Monad.State.Lazy,
     ModuleIndex
   )
@@ -43,8 +43,8 @@ import qualified Data.Time.Clock as Clock
 import GHC.Generics
 import Lens.Micro.Mtl
 import Lens.Micro.TH
-import Lib.PolishExpression
-import Lib.SlicingTree
+import Floorplan.PolishExpression
+import Floorplan.SlicingTree
 import qualified System.Random.MWC as Random
 import Text.Printf (printf)
 
@@ -112,7 +112,7 @@ mkCoolingRate d
   | otherwise = Nothing
 
 defaultCoolingRate :: CoolingRate
-defaultCoolingRate = 0.75
+defaultCoolingRate = 0.85
 
 data Coordinate = Coordinate {_x :: Double, _y :: Double}
   deriving stock (Show, Eq, Ord)
