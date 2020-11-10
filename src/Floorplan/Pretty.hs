@@ -10,7 +10,8 @@ import qualified Data.IntMap.Strict as Map
 import qualified Data.List as List
 import Data.Matrix (Matrix)
 import qualified Data.Matrix as Matrix
-import Floorplan.SimulatedAnnealing
+import Floorplan.Types
+import Control.Monad.IO.Class
 
 ----------------------------------------------------------
 

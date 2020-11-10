@@ -29,10 +29,10 @@ import qualified System.Random.MWC as Random
 import Text.Printf
 import Text.Read (readMaybe)
 import Control.Monad.IO.Class
+import Floorplan.Types
 
 -----------------------------------------------------
 
-type ModuleIndex = Int
 
 -- | H means a slice in the horizontal plane i.e. elements must be placed vertical.
 --

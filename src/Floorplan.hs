@@ -71,9 +71,11 @@ module Floorplan
   , module Floorplan.PolishExpression
   , module Floorplan.SimulatedAnnealing
   , module Floorplan.SlicingTree
+  , module Floorplan.Types
   ) where
 
 import Floorplan.PolishExpression
 import Floorplan.Pretty
 import Floorplan.SimulatedAnnealing
 import Floorplan.SlicingTree
+import Floorplan.Types

@@ -23,11 +23,9 @@
 {-# LANGUAGE TupleSections #-}
 
 module Floorplan.SimulatedAnnealing
-  ( module Floorplan.SimulatedAnnealing,
-    module Control.Monad.State.Lazy,
-    ModuleIndex
-  )
-where
+  ( module Floorplan.SimulatedAnnealing
+  , module Floorplan.Types
+  )where
 
 -----------------------------------------------------------------------------------
 
@@ -45,45 +43,13 @@ import Lens.Micro.Mtl
 import Lens.Micro.TH
 import Floorplan.PolishExpression
 import Floorplan.SlicingTree
+import Floorplan.Types
 import qualified System.Random.MWC as Random
 import Text.Printf (printf)
 
 -----------------------------------------------------------------------------------
 
 newtype Temperature = Temperature Double deriving newtype (Show, Eq, Ord, Num, Fractional)
-
-newtype Height = Height {_height :: Int} deriving newtype (Show, Eq, Ord, Num)
-
-newtype Width = Width {_width :: Int} deriving newtype (Show, Eq, Ord, Num)
-
-newtype Shape = Shape (Width, Height) deriving stock (Show, Eq, Ord)
-
-pattern Shape' :: Int -> Int -> Shape
-pattern Shape' w h = Shape ((Width w), (Height h))
-
-newtype WireLength = WireLength {_wireLength :: Double}
-  deriving newtype (Show, Eq, Ord, Num, Fractional)
-
-newtype AspectRatio = AspectRatio {_aspectRatio :: Double}
-  deriving newtype (Show, Eq, Ord, Num, Fractional)
-
--- Hide constructor
-newtype Interval a = Interval {_interval :: (a, a)}
-  deriving newtype (Show, Eq)
-
-mkInterval :: (Ord a) => (a, a) -> Maybe (Interval a)
-mkInterval interval@(a, b)
-  | a <= b = Just (coerce interval)
-  | otherwise = Nothing
-
-inside :: (Ord a) => Interval a -> a -> Bool
-inside (Interval (a, b)) x
-  | a <= x && x <= b = True
-  | otherwise = False
-
--- | Cost > 0
-newtype Cost = Cost {_cost :: Double}
-  deriving newtype (Show, Eq, Ord, Num, Floating, Fractional)
 
 -- | Lambda of the cost function: A(alpha) + lambda*W(alpha)
 newtype Lambda = Lambda {_lambda :: Double} deriving newtype (Show, Eq, Ord, Num, Fractional)
@@ -114,12 +80,12 @@ mkCoolingRate d
 defaultCoolingRate :: CoolingRate
 defaultCoolingRate = 0.85
 
-data Coordinate = Coordinate {_x :: Double, _y :: Double}
-  deriving stock (Show, Eq, Ord)
-
 newtype Problem = Problem -- Hide constructor
   { _problem :: IntMap ([Shape], [ModuleIndex])
   }
+
+problemSize :: Problem -> Int
+problemSize = length . Map.keys . _problem
 
 -- |
 -- Properties of a valid problem:
@@ -142,19 +108,6 @@ validateProblem problem = do
 -- Annealing Schedule
 
 
-data BoundingBox = BoundingBox {_bottomLeft :: Coordinate, _topRigth :: Coordinate}
-  deriving stock (Show, Eq)
-
-type BoundingBoxes = IntMap BoundingBox
-
-pattern BoundingBox' :: Double -> Double -> Double -> Double -> BoundingBox
-pattern BoundingBox' x_bl y_bl x_tr y_tr = BoundingBox (Coordinate x_bl y_bl) (Coordinate x_tr y_tr)
-
-computeCenter :: BoundingBox -> Coordinate
-computeCenter (BoundingBox' x_bl y_bl x_tr y_tr) = Coordinate ((x_bl + x_tr) / 2) ((y_bl + y_tr) / 2)
-
-newtype Floorplan = Floorplan { _floorplan :: BoundingBoxes }
-
 data Variables = Variables
   { _best :: (PolishExpression, Cost, BoundingBoxes),
     _current :: (PolishExpression, Cost, BoundingBoxes),
@@ -173,7 +126,7 @@ makeLenses ''Variables
 
 -- | Applies an annealing schedule to approximate the best solution
 simulatedAnnealing ::
-  (MonadIO m) =>
+  MonadIO m =>
   Problem ->
   Interval AspectRatio ->
   Lambda ->
@@ -465,6 +418,7 @@ combineShapeCurves op l r =
         less (Coordinate x1 _, _) (Coordinate x2 _, _) = x1 < x2
 
 ---------------------------------------------------------------------
+-- Util
 
 class HasGen (s :: Type) (m :: Type -> Type) where
   getGen :: m Random.GenIO
@@ -472,7 +426,7 @@ class HasGen (s :: Type) (m :: Type -> Type) where
 instance (MonadState s m, HasType Random.GenIO s) => HasGen s m where
   getGen = getTyped <$> get
 
----------------------------------------------------------------------
+-------------------------------
 
 data Return = Always | Sometimes
 
@@ -486,18 +440,11 @@ data DReturn (r :: Return) (a :: Type) where
 
 deriving stock instance Functor (DReturn r)
 
----------------------------------------------------------------------
+-------------------------------
 
 -- | Double generated u.a.r from the range [0,1]
 rand :: forall s m. (HasGen s m, MonadIO m) => m Double
 rand = liftIO . Random.uniformRM (0.0, 1.0) =<< getGen @s
-
-problemSize :: Problem -> Int
-problemSize = length . Map.keys . _problem
-
-manhattanDistance :: Coordinate -> Coordinate -> Double
-manhattanDistance (Coordinate x1 y1) (Coordinate x2 y2) =
-  abs (x1 - x2) + abs (y1 - y2)
 
 average :: (Fractional a) => [a] -> a
 average [] = error "Average of empty list."

@@ -9,7 +9,12 @@ module Floorplan.SlicingTree
   )
 where
 
+-----------------------------------------------------------
+
 import Floorplan.PolishExpression
+import Floorplan.Types
+
+-----------------------------------------------------------
 
 data SlicingTree where
   Leaf :: ModuleIndex -> SlicingTree

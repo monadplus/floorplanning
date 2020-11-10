@@ -11,6 +11,7 @@ import Floorplan.PolishExpression
 import Floorplan.SimulatedAnnealing
 import Floorplan.SlicingTree
 import Test.Hspec
+import Control.Monad.State.Lazy
 
 simulatedAnnealingSpec :: Spec
 simulatedAnnealingSpec =
