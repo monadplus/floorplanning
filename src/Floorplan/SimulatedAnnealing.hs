@@ -16,19 +16,22 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE TupleSections #-}
 
 module Floorplan.SimulatedAnnealing
-  ( module Floorplan.SimulatedAnnealing
-  , module Floorplan.Types
-  )where
+  ( module Floorplan.SimulatedAnnealing,
+    module Floorplan.Types,
+    module Data.IntMap.Strict,
+  )
+where
 
 -----------------------------------------------------------------------------------
 
+import Control.Concurrent
 import Control.Monad.State.Lazy
 import Data.Coerce
 import Data.Function (on)
@@ -38,25 +41,21 @@ import qualified Data.IntMap.Strict as Map
 import Data.Kind
 import qualified Data.List as List
 import qualified Data.Time.Clock as Clock
+import Floorplan.PolishExpression
+import qualified Floorplan.Pretty as Pretty
+import Floorplan.SlicingTree
+import Floorplan.Types
 import GHC.Generics
 import Lens.Micro.Mtl
 import Lens.Micro.TH
-import Floorplan.PolishExpression
-import Floorplan.SlicingTree
-import Floorplan.Types
-import qualified Floorplan.Pretty as Pretty
+import qualified System.Console.ANSI as Console
 import qualified System.Random.MWC as Random
-import Text.Printf (printf)
 import Prelude hiding (print)
 import qualified Prelude
-import qualified System.Console.ANSI as Console
-import Control.Concurrent
 
 -----------------------------------------------------------------------------------
 
-newtype Temperature = Temperature Double deriving newtype (Show, Eq, Ord, Num, Fractional)
-
--- | Lambda of the cost function: A(alpha) + lambda*W(alpha)
+-- | Lambda of the cost function: \[A(\alpha) + \lambda * W(\alpha)\]
 newtype Lambda = Lambda {_lambda :: Double} deriving newtype (Show, Eq, Ord, Num, Fractional)
 
 -- | \[ 0 \leq \lambda \leq 1 \]
@@ -66,14 +65,21 @@ mkLambda d
   | otherwise = Nothing
 
 -- | Gamma as in section 2.5 Annealing Schedule
-newtype Gamma = Gamma {_gamma :: Int} deriving newtype (Show, Eq, Ord, Num)
+newtype Gamma = Gamma {_gamma :: Int}
+  deriving newtype (Show, Eq, Ord, Num)
+
+-- | 0 < gamma < 100
+mkGamma :: Int -> Maybe Gamma
+mkGamma x
+  | 0 < x && x < 100 = Just (coerce x)
+  | otherwise = Nothing
 
 -- | Slides suggest 5-10
 defaultGamma :: Gamma
-defaultGamma = 10
+defaultGamma = 5
 
 -- | Cooling rate as in section 2.5 Annealing Schedule
-newtype CoolingRate = CoolingRate {_coolingRate :: Double} -- hide constructor
+newtype CoolingRate = CoolingRate {_coolingRate :: Double}
   deriving newtype (Show, Eq, Ord, Num, Fractional)
 
 -- | 0 < cooling rate < 1
@@ -84,6 +90,7 @@ mkCoolingRate d
 
 defaultCoolingRate :: CoolingRate
 defaultCoolingRate = 0.85
+
 
 newtype Problem = Problem -- Hide constructor
   { _problem :: IntMap ([Shape], [ModuleIndex])
@@ -97,8 +104,8 @@ problemSize = length . Map.keys . _problem
 --   * Modules numbered from 1 to n
 --   * One shape per module
 --   * Modules connected to existent modules.
-validateProblem :: IntMap ([Shape], [ModuleIndex]) -> Either String Problem
-validateProblem problem = do
+mkProblem :: IntMap ([Shape], [ModuleIndex]) -> Either String Problem
+mkProblem problem = do
   let modules = Map.keys problem
       n = List.length modules
       (listOfShapes, listOfConnections) = unzip (Map.elems problem)
@@ -109,9 +116,11 @@ validateProblem problem = do
     unless (length (List.nub connections) == List.length connections) $ Left "Connection repeated."
   return $ Problem problem
 
+newtype Temperature = Temperature Double
+  deriving newtype (Show, Eq, Ord, Num, Fractional)
+
 ---------------------------------------------------------------------
 -- Annealing Schedule
-
 
 data Variables = Variables
   { _best :: (PolishExpression, Cost, BoundingBoxes),
@@ -129,7 +138,33 @@ data Variables = Variables
 
 makeLenses ''Variables
 
--- | Applies an annealing schedule to approximate the best solution
+{-| The Simulated Annealing Algorithm:
+
+* Current = Best = 12*3*4*..*n*
+* Cooling ratio = r = 0.85
+* ∆_avg = perform random moves and compute the average value fo the magnitude of change in cost per move.
+* T_0: we should have exp(-∆_avg/T_0) = P ~ 1, so T_0 = -∆_avg/ln(P)
+* T_final = T_0 * 0.2 (~ 10 iterations, with r=0.85)
+* T = T_0
+* N = n*\gamma where \gamma is a user defined constant
+
+> repeat
+>      repeat
+>            New = Best + randomly select move // M3 requires trying several times.
+>            #moves <- #moves + 1
+>            ∆cost <- Cost(new) - Cost(Z)
+>            if (∆cost \leq 0) or (random(0,1) < e^{ -∆cost / T }) // Boltzmann acceptance criterion, where r is a random number [0, 1)
+>                 if(∆cost < 0) then downhill <- downhill + 1
+>                 Current = New
+>                 if cost(Current) < cost(Best) then Best <- Current
+>            else
+>                reject <- reject + 1
+>      until (downhill >= N) or (#moves > 2N)
+>      T <- r*T
+>      #moves = 0
+> until (reject / #moves > 0.95) or (T <= T_final) or OutOfTime
+> return Best
+-}
 simulatedAnnealing ::
   MonadIO m =>
   Problem ->
@@ -149,7 +184,7 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
   _startTime <- liftIO $ Clock.getCurrentTime
   let p = (0.98 :: Double) -- Probability of acceptance at high-temperature.
       _currentTmp = coerce $ (- moveIncrAvg) / log p -- log = ln
-      iterations = 20 :: Int
+      iterations = 50 :: Int
       _finalTmp = coerce $ (r ^ iterations) * (coerce _currentTmp)
       _bigN = n * (coerce gamma)
       _current = (initial, initialCost, initialBB)
@@ -176,11 +211,11 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
       case terminalSize of
         Nothing ->
           return ()
-        Just (_, _) -> do -- rows columns
+        Just (_, _) -> do
+          -- rows columns
           liftIO $ Console.setCursorPosition 0 0
           Pretty.prettyPrint (Floorplan boundingBoxes)
-          liftIO $ threadDelay (10^5)
-
+          liftIO $ threadDelay (10 ^ 5) -- TODO There is a delay!!!
     outerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
     outerLoop !it = do
       innerLoop 1

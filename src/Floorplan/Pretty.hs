@@ -2,17 +2,18 @@
 
 module Floorplan.Pretty
   ( pretty,
-    prettyPrint
+    prettyPrint,
   )
 where
 
+----------------------------------------------------------
+
+import Control.Monad.IO.Class
 import qualified Data.IntMap.Strict as Map
 import qualified Data.List as List
 import Data.Matrix (Matrix)
 import qualified Data.Matrix as Matrix
 import Floorplan.Types
-import Control.Monad.IO.Class
-import Floorplan.PolishExpression
 
 ----------------------------------------------------------
 

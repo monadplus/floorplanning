@@ -5,6 +5,7 @@ module Test.PolishExpression where
 import Data.Either
 import Floorplan.PolishExpression
 import Test.Hspec
+import System.Random.MWC
 
 polishExpressionSpec :: Spec
 polishExpressionSpec =

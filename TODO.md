@@ -1,10 +1,12 @@
 # TODO
 
-- [ ] Avoid computing cost of an already explored polish expression
-- [ ] **Reuse previous computations on shape curves***: store the shape on each branch and only recompute the branches (at most 2) that has changed after a perturbation on the polish expression.
+- [ ] CLI: demo and run from files
+- [ ] Pass Demo/Run to simulatedAnneing. In run mode, there should be no delay
+- [ ] Avoid computing the cost of an already explored polish expression.
+- [ ] Recompute shape curves only tore the shape on each branch and only recompute the branches (at most 2) that has changed after a perturbation on the polish expression.
 - [ ] The representation of a floorplan is clunky. Most of the work of Floorplan.Pretty is transforming it to a matrix representation.
 
-## Improvements on the code
+## IMPROVEMENTS
 
 - Improve `PolishExpression`:
 

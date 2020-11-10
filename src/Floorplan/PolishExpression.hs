@@ -5,15 +5,38 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Floorplan.PolishExpression
-  ( module Floorplan.PolishExpression,
-    Random.createSystemRandom,
+  ( -- * Polish Expression
+
+    -- ** Data types
+    Operator (..),
+    Alphabet (..),
+    PolishExpression (..),
+
+    -- ** Functions
+    parsePolishExpression,
+    parsePolishExpression',
+    validate,
+    initialPE,
+    perturbate,
+    perturbateN,
+
+    -- ** Utils
+    takeOperators,
+    applyTo,
+
+    -- ** Internal
+    move1,
+    move1',
+    move2,
+    move2',
+    move3,
   )
 where
 
@@ -22,17 +45,16 @@ where
 import Control.Applicative
 import Control.Exception (AssertionFailed (..), throwIO)
 import Control.Monad (foldM, when)
+import Control.Monad.IO.Class
 import Data.Coerce
 import qualified Data.List as List
 import Data.Maybe (isJust)
+import Floorplan.Types
 import qualified System.Random.MWC as Random
 import Text.Printf
 import Text.Read (readMaybe)
-import Control.Monad.IO.Class
-import Floorplan.Types
 
 -----------------------------------------------------
-
 
 -- | H means a slice in the horizontal plane i.e. elements must be placed vertical.
 --
@@ -54,14 +76,28 @@ instance Show Alphabet where
   show (Operand i) = show i
   show (Operator op) = show op
 
+{-|
+Polish expression is sequence of elements from {1,2,...,n,*,+} with the following properties:
+
+ * (i) Each block appears exactly once in the string an #operators = n - 1
+ * (ii) Balloting property: forall positions in the string #operators < #operand
+ * (iii) no consecutive operator of the same type: normality property.
+
+A polish expression with no consecutive operators of the same type is called a __normalized polish expression__.
+
+The traverse of a slicing tree in postorder gives a (proper) polish expression.
+
+Theorem. 1-1 correspondence between the set of normalized polished expressions
+of length 2n-1 and the set of skewed slicing trees with n leaves.
+-}
 newtype PolishExpression = PolishExpression {_pe :: [Alphabet]}
   deriving newtype (Eq)
 
 instance Show PolishExpression where
   show (PolishExpression []) = ""
-  show (PolishExpression (e:pe))= List.foldl' go (show e) pe
+  show (PolishExpression (e : pe)) = List.foldl' go (show e) pe
     where
-    go acc a = acc ++ (' ' : show a)
+      go acc a = acc ++ (' ' : show a)
 
 -- | Produces the initial polish expression of the form 12*3*...*n*
 --
@@ -78,6 +114,13 @@ initialPE n
           Right _ -> Just pe
 
 -- | Perturbate a polish expression randomly applying one of the three valid moves.
+--
+-- Moves:
+--  * M1: swap two adjacent operands
+--  * M2: complementing (swap H and V) some chain of operators
+--  * M3: swap a pair of adjacent operands and operators
+--
+-- In  case of M3, we need to validate properties (ii) and (iii).
 perturbate :: (MonadIO m) => Random.GenIO -> PolishExpression -> m PolishExpression
 perturbate gen pe = liftIO $ do
   go =<< Random.uniformRM (1, 3) gen
@@ -93,6 +136,7 @@ perturbate gen pe = liftIO $ do
           Just pe' -> return pe'
       _ -> error "Random value should be in the range [1,3]"
 
+-- | Like 'perturbate' but n times
 perturbateN :: (MonadIO m) => Int -> PolishExpression -> m PolishExpression
 perturbateN n pe = do
   when (n < 0) $ (liftIO . throwIO) (AssertionFailed "Expected a positive number.")
@@ -259,6 +303,7 @@ parsePolishExpression str = do
           c' <- parseOperand c <|> parseOperator c <|> err
           parse' cs (c' : acc)
 
+-- | Like 'parsePolishExpression' but throws.
 parsePolishExpression' :: String -> PolishExpression
 parsePolishExpression' str =
   case parsePolishExpression str of

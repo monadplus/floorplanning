@@ -2,7 +2,24 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
-module Floorplan.Types where
+module Floorplan.Types
+  ( ModuleIndex
+  , Height(..)
+  , Width(..)
+  , Shape(.., Shape')
+  , WireLength(..)
+  , AspectRatio(..)
+  , Interval
+  , mkInterval
+  , inside
+  , Cost(..)
+  , Coordinate(..)
+  , manhattanDistance
+  , BoundingBox(.., BoundingBox')
+  , BoundingBoxes
+  , computeCenter
+  , Floorplan(..)
+  )where
 
 ----------------------------------------------------------------------------------
 
@@ -35,7 +52,6 @@ newtype AspectRatio = AspectRatio {_aspectRatio :: Double}
 
 --------------------------------
 
--- Hide constructor
 newtype Interval a = Interval {_interval :: (a, a)}
   deriving newtype (Show, Eq)
 
