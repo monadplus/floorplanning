@@ -19,21 +19,7 @@ prettyPrint = liftIO . putStrLn . pretty
 
 -- | You need to set output to utf8
 pretty :: Floorplan -> String
-pretty (Floorplan boundingBoxes) =
-  show $ List.foldl' (fillMatrix rows) matrix discreteBoundingBoxes
-  where
-    getXY (_, (BoundingBox _ (Coordinate x y))) = (floor x, floor y)
-    (columns, rows) = maximum . fmap getXY . Map.toList $ boundingBoxes
-    matrix = Matrix.zero rows columns :: Matrix ModuleIndex
-    discreteBoundingBoxes = (fmap . fmap) toDBB $ Map.toList boundingBoxes
-
-    fillMatrix :: Int -> Matrix ModuleIndex -> (ModuleIndex, DBoundingBox) -> Matrix ModuleIndex
-    fillMatrix rows matrix (moduleIndex, DBoundingBox x_bl y_bl x_tr y_tr) =
-      List.foldl' go matrix [(n, m) | m <- [x_bl + 1 .. x_tr], n <- [y_bl + 1 .. y_tr]]
-      where
-        -- Row/Column from 1 to n
-        go :: Matrix ModuleIndex -> (Int, Int) -> Matrix ModuleIndex
-        go matrix (n, m) = Matrix.setElem moduleIndex (rows - n + 1, m) matrix
+pretty = Matrix.prettyMatrix . toMatrix
 
 ----------------------------------------------------------
 
@@ -43,3 +29,27 @@ data DBoundingBox = DBoundingBox {x_bl :: Int, y_bl :: Int, x_tr :: Int, y_t :: 
 
 toDBB :: BoundingBox -> DBoundingBox
 toDBB (BoundingBox' x_bl y_bl x_tr y_tr) = DBoundingBox (floor x_bl) (floor y_bl) (floor x_tr) (floor y_tr)
+
+toMatrix :: Floorplan -> Matrix ModuleIndex
+toMatrix (Floorplan boundingBoxes) =
+  List.foldl' (fillMatrix nRows) matrix discreteBoundingBoxes
+  where
+    nColumns =
+      let getX (_, (BoundingBox _ (Coordinate x _))) = floor x
+       in maximum . fmap getX . Map.toList $ boundingBoxes
+
+    nRows =
+      let getY (_, (BoundingBox _ (Coordinate _ y))) = floor y
+       in maximum . fmap getY . Map.toList $ boundingBoxes
+
+    matrix = Matrix.zero nRows nColumns :: Matrix ModuleIndex
+
+    discreteBoundingBoxes = (fmap . fmap) toDBB $ Map.toList boundingBoxes
+
+    fillMatrix :: Int -> Matrix ModuleIndex -> (ModuleIndex, DBoundingBox) -> Matrix ModuleIndex
+    fillMatrix rows matrix (moduleIndex, DBoundingBox x_bl y_bl x_tr y_tr) =
+      List.foldl' go matrix [(n, m) | n <- [y_bl + 1 .. y_tr], m <- [x_bl + 1 .. x_tr]]
+      where
+        -- Row/Column from 1 to n
+        go :: Matrix ModuleIndex -> (Int, Int) -> Matrix ModuleIndex
+        go matrix (n, m) = Matrix.setElem moduleIndex (rows - n + 1, m) matrix

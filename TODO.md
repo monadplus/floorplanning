@@ -1,6 +1,7 @@
 # TODO
 
 - [ ] **Reuse previous computations on shape curves***: store the shape on each branch and only recompute the branches (at most 2) that has changed after a perturbation on the polish expression.
+- [ ] The representation of a floorplan is clunky. Most of the work of Floorplan.Pretty is transforming it to a matrix representation.
 
 ## Improvements on the code
 
