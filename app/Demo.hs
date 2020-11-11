@@ -1,9 +1,7 @@
 module Demo where
 
-import Control.Concurrent
 import qualified Data.IntMap.Strict as Map
 import Floorplan
-import System.Console.ANSI
 import System.IO
 
 -- TODO the demo should use random generators
@@ -12,10 +10,10 @@ runDemo = do
   hSetEncoding stdout utf8
   hSetEncoding stderr utf8
 
-  let Just aspectRatioInterval = mkInterval ((AspectRatio 0), (AspectRatio 100000))
+  let Just aspectRatioInterval = mkInterval ((AspectRatio 0.5), (AspectRatio 2.0))
       Just lambda = mkLambda 0.5
       Right problem =
-        validateProblem $
+        mkProblem $
           Map.fromList
             [ (1, ([Shape' 1 4, Shape' 4 1], [6, 7])),
               (2, ([Shape' 3 3], [3, 4, 5])),
@@ -27,13 +25,14 @@ runDemo = do
               (8, ([Shape' 2 6, Shape' 6 2], [3])),
               (9, ([Shape' 2 2], [3, 7]))
             ]
+      config = Config
+                { _cProblem = problem,
+                  _cAspectRatio = aspectRatioInterval,
+                  _cLambda = lambda,
+                  _cCoolingRate = defaultCoolingRate,
+                  _cGamma = defaultGamma,
+                  _cMode = Demo
+                }
 
-  floorplan <-
-    simulatedAnnealing
-      problem
-      aspectRatioInterval
-      lambda
-      defaultCoolingRate
-      defaultGamma
-
-  return () -- prettyPrint floorplan
+  _ <- simulatedAnnealing config
+  return ()

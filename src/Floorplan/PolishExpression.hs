@@ -174,7 +174,7 @@ move2 gen pe = liftIO $ do
   chainLength <- Random.uniformRM (0, nOperators - i - 1) gen
   return (move2' i chainLength pe)
 
--- | Complement the chain of operators of size 'chainLength' starting at 'i'
+-- | Complement the chain of operators of size _chainLength_ starting at _i_
 move2' ::
   -- | Start of the chain
   Int ->
@@ -239,8 +239,7 @@ move3 gen pe = liftIO $ do
         next count (e1 : e2 : rest) = fmap ([e1, e2] ++) <$> trySwap' count rest
         next _ _ = error "Check next in move3."
 
--- | Returns 'm' characters of the alphabet.
--- 'm' = n operators + n' operands < 2n-1
+-- | Returns _m_ characters of the alphabet.
 takeOperators :: Int -> [Alphabet] -> ([Alphabet], [Alphabet])
 takeOperators _ [] = ([], [])
 takeOperators 0 xs = ([], xs)

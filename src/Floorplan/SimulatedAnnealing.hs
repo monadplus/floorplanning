@@ -91,13 +91,14 @@ mkCoolingRate d
 defaultCoolingRate :: CoolingRate
 defaultCoolingRate = 0.85
 
-
-newtype Problem = Problem -- Hide constructor
-  { _problem :: IntMap ([Shape], [ModuleIndex])
+newtype Problem = Problem
+  { _pproblem :: IntMap ([Shape], [ModuleIndex])
   }
 
+makeLenses ''Problem
+
 problemSize :: Problem -> Int
-problemSize = length . Map.keys . _problem
+problemSize = length . Map.keys . _pproblem
 
 -- |
 -- Properties of a valid problem:
@@ -118,6 +119,21 @@ mkProblem problem = do
 
 newtype Temperature = Temperature Double
   deriving newtype (Show, Eq, Ord, Num, Fractional)
+
+data Mode = Production | Demo
+  deriving stock (Read, Show, Eq, Ord, Enum)
+
+data Config = Config
+  { _cProblem :: Problem,
+    _cAspectRatio :: Interval AspectRatio,
+    _cLambda :: Lambda,
+    _cCoolingRate :: CoolingRate,
+    _cGamma :: Gamma,
+    _cMode :: Mode
+  }
+  deriving stock (Generic)
+
+makeLenses ''Config
 
 ---------------------------------------------------------------------
 -- Annealing Schedule
@@ -165,22 +181,27 @@ makeLenses ''Variables
 > until (reject / #moves > 0.95) or (T <= T_final) or OutOfTime
 > return Best
 -}
-simulatedAnnealing ::
+simulatedAnnealing :: MonadIO m => Config -> m Floorplan
+simulatedAnnealing Config{..} = do
+  simulatedAnnealing' _cProblem _cAspectRatio _cLambda _cCoolingRate _cGamma _cMode
+
+simulatedAnnealing' ::
   MonadIO m =>
   Problem ->
   Interval AspectRatio ->
   Lambda ->
   CoolingRate ->
   Gamma ->
+  Mode ->
   m Floorplan
-simulatedAnnealing problem aspectRatio lambda r gamma = do
+simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
   let n = problemSize problem
   initial <- case initialPE n of
     Nothing -> liftIO $ fail "Too small problem"
     Just pe -> return pe
-  (initialCost, initialBB) <- evalStateT (computeCost initial DAlways lambda) problem
+  (_, initialCost, initialBB) <- evalStateT (computeCost initial lambda aspectRatio) problem
   _gen <- liftIO $ Random.createSystemRandom
-  moveIncrAvg <- avgIncrementByMove _gen lambda problem initial
+  moveIncrAvg <- avgIncrementByMove _gen lambda aspectRatio problem initial
   _startTime <- liftIO $ Clock.getCurrentTime
   let p = (0.98 :: Double) -- Probability of acceptance at high-temperature.
       _currentTmp = coerce $ (- moveIncrAvg) / log p -- log = ln
@@ -194,8 +215,8 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
       _rejects = 0
   runAnnealing Variables {..}
   where
-    runComputeCost :: (MonadIO m) => PolishExpression -> m (Maybe (Cost, BoundingBoxes))
-    runComputeCost pe = evalStateT (computeCost pe (DSometimes aspectRatio) lambda) problem
+    runComputeCost :: (MonadIO m) => PolishExpression -> m (Bool, Cost, BoundingBoxes)
+    runComputeCost pe = evalStateT (computeCost pe lambda aspectRatio) problem
 
     runAnnealing :: (MonadIO m) => Variables -> m Floorplan
     runAnnealing variables = do
@@ -204,18 +225,21 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
       return (Floorplan boundingBoxes)
 
     printPartialSolution :: (MonadState Variables m, MonadIO m) => m ()
-    printPartialSolution = do
-      (_, _, boundingBoxes) <- use best
-      liftIO Console.clearScreen
-      terminalSize <- liftIO Console.getTerminalSize
-      case terminalSize of
-        Nothing ->
-          return ()
-        Just (_, _) -> do
-          -- rows columns
-          liftIO $ Console.setCursorPosition 0 0
-          Pretty.prettyPrint (Floorplan boundingBoxes)
-          liftIO $ threadDelay (10 ^ 5) -- TODO There is a delay!!!
+    printPartialSolution =
+      case mode of
+        Production -> return ()
+        Demo -> do
+          (_, _, boundingBoxes) <- use best
+          liftIO Console.clearScreen
+          terminalSize <- liftIO Console.getTerminalSize
+          case terminalSize of
+            Nothing ->
+              return ()
+            Just (_, _) -> do
+              liftIO $ Console.setCursorPosition 0 0 -- rows columns
+              Pretty.prettyPrint (Floorplan boundingBoxes)
+              liftIO $ threadDelay (10 ^ (5 :: Int))
+
     outerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
     outerLoop !it = do
       innerLoop 1
@@ -244,23 +268,19 @@ simulatedAnnealing problem aspectRatio lambda r gamma = do
     innerLoop !it = do
       Variables {..} <- get
       newPE <- perturbate _gen (fst3 _current)
-      newSolution <- runComputeCost newPE
+      (isValid, newCost, newBB) <- runComputeCost newPE
       moves += 1
-      case newSolution of
-        Nothing ->
-          rejects += 1
-        Just (newCost, newBB) -> do
-          let incrCost = newCost - (snd3 _current)
-          randomValue <- rand
-          let alpha = coerce $ exp (- incrCost / (coerce _currentTmp)) :: Double
-          if incrCost <= 0 || randomValue < alpha
-            then do
-              when (incrCost <= 0) $ downhill += 1
-              current .= (newPE, newCost, newBB)
-              when (newCost <= (snd3 _best)) $ do
-                best .= (newPE, newCost, newBB)
-                printPartialSolution
-            else rejects += 1
+      let incrCost = newCost - (snd3 _current)
+      randomValue <- rand
+      let alpha = coerce $ exp (- incrCost / (coerce _currentTmp)) :: Double
+      if incrCost <= 0 || randomValue < alpha
+        then do
+          when (incrCost <= 0) $ downhill += 1
+          current .= (newPE, newCost, newBB)
+          when (isValid && newCost <= (snd3 _best)) $ do
+            best .= (newPE, newCost, newBB)
+            printPartialSolution
+        else rejects += 1
       stop <- innerStopCondition
       unless stop $ innerLoop (it + 1)
 
@@ -275,12 +295,13 @@ avgIncrementByMove ::
   MonadIO m =>
   Random.GenIO ->
   Lambda ->
+  Interval AspectRatio ->
   Problem ->
   PolishExpression ->
   m Double
-avgIncrementByMove gen lambda problem initialPE = flip evalStateT problem $ do
+avgIncrementByMove gen lambda aspectRatio problem initialPE = flip evalStateT problem $ do
   let n = 100 -- #perturbations to approximate the average
-      getCost pe = fst <$> computeCost pe DAlways lambda
+      getCost pe = snd3 <$> computeCost pe lambda aspectRatio
   initialCost <- getCost initialPE
   perturbationsCosts <- replicateM n (getCost =<< perturbate gen initialPE)
   return . average . fmap (coerce . abs . subtract initialCost) $ perturbationsCosts
@@ -289,34 +310,41 @@ avgIncrementByMove gen lambda problem initialPE = flip evalStateT problem $ do
 -- Polish Expression Cost
 
 -- | Computes the cost of the best solution of a polish expression
+--
+-- The solution may not be valid:
+-- * Aspect ratio constraint violated
+-- * Missing module
+--
+-- Invalid solutions should be explored but never accepted as solutions.
 computeCost ::
   (MonadState Problem m) =>
   PolishExpression ->
-  DReturn r (Interval AspectRatio) ->
   Lambda ->
-  m (Maybe' r (Cost, BoundingBoxes))
-computeCost pe dReturn lambda = do
+  Interval AspectRatio ->
+  m (Bool, Cost, BoundingBoxes)
+computeCost pe lambda aspectRatioInterval = do
   let slicingTree = toSlicingTree pe
-  case dReturn of
-    DAlways -> do
-      scores <- traverse (computeCost' slicingTree) =<< getShapeCurves slicingTree
-      return $ List.minimumBy (compare `on` fst) scores
-    DSometimes aspectRatioInterval -> do
-      let checkAspectRatio (Coordinate x y, _) = inside aspectRatioInterval $ AspectRatio (y / x)
-      shapeCurves <- filter checkAspectRatio <$> getShapeCurves slicingTree
-      case shapeCurves of
-        [] -> return Nothing
-        _ -> do
-          scores <- traverse (computeCost' slicingTree) shapeCurves
-          return $ Just (List.minimumBy (compare `on` fst) scores)
+  solutions <- traverse (computeCost' slicingTree) =<< getShapeCurves slicingTree
+  returnBestSolution solutions
   where
-    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m (Cost, BoundingBoxes)
+    returnBestSolution :: (MonadState Problem m) => [(Bool, Cost, BoundingBoxes)] -> m (Bool, Cost, BoundingBoxes)
+    returnBestSolution solutions = do
+      p <- use pproblem
+      let problemModules = Map.keys p
+          -- TODO should not be needed.
+          includesAllModules (_, _, bbs) = Map.keys bbs == problemModules
+          onlyValidSolutions = filter includesAllModules solutions
+      return $ List.minimumBy (compare `on` snd3) onlyValidSolutions
+
+    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m (Bool, Cost, BoundingBoxes)
     computeCost' slicingTree (Coordinate a b, info) = do
       let moduleShapes = Map.fromList info
           boundingBoxes = getBoundingBoxes moduleShapes slicingTree
           area = a * b
+          validAspectRatio = inside aspectRatioInterval $ AspectRatio (b / a)
       wirelength <- totalWireLength boundingBoxes
-      return . (,boundingBoxes) . coerce $ area + (coerce lambda) * (coerce wirelength)
+      let cost = Cost (area + ((coerce lambda) * (coerce wirelength)))
+      return (validAspectRatio, cost, boundingBoxes)
 
 ------------------------------------------------------------------------------------
 -- Wirelength

@@ -22,6 +22,8 @@ module Floorplan
     simulatedAnnealing,
 
     -- ** Data Constructors
+    Config(..),
+    Mode(..),
     Lambda,
     mkLambda,
     Gamma,
