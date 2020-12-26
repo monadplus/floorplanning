@@ -205,7 +205,7 @@ move2' i chainLength pe = go i chainLength `over` pe
 move3 :: (MonadIO m) => Random.GenIO -> PolishExpression -> m (Maybe PolishExpression)
 move3 gen pe = liftIO $ do
   let len = length `applyTo` pe
-  move3' len 10
+  move3' len 10 -- #tries before failure
   where
     move3' :: Int -> Int -> IO (Maybe PolishExpression)
     move3' _ 0 = return Nothing -- We failed n times, let's assume no valid swap is possible.

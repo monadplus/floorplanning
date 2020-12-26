@@ -2,6 +2,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE BangPatterns #-}
 module Floorplan.Types
   ( ModuleIndex
   , Height(..)
@@ -88,7 +89,8 @@ data BoundingBox = BoundingBox {_bottomLeft :: Coordinate, _topRigth :: Coordina
 type BoundingBoxes = IntMap BoundingBox
 
 pattern BoundingBox' :: Double -> Double -> Double -> Double -> BoundingBox
-pattern BoundingBox' x_bl y_bl x_tr y_tr = BoundingBox (Coordinate x_bl y_bl) (Coordinate x_tr y_tr)
+pattern BoundingBox' x_bl y_bl x_tr y_tr <- BoundingBox (Coordinate !x_bl !y_bl) (Coordinate !x_tr !y_tr) where
+  BoundingBox' !x_bl !y_bl !x_tr !y_tr = BoundingBox (Coordinate x_bl y_bl) (Coordinate x_tr y_tr) where
 
 computeCenter :: BoundingBox -> Coordinate
 computeCenter (BoundingBox' x_bl y_bl x_tr y_tr) = Coordinate ((x_bl + x_tr) / 2) ((y_bl + y_tr) / 2)

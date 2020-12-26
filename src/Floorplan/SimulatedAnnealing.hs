@@ -215,7 +215,7 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
       _rejects = 0
   runAnnealing Variables {..}
   where
-    runComputeCost :: (MonadIO m) => PolishExpression -> m (Bool, Cost, BoundingBoxes)
+    runComputeCost :: (MonadIO m) => PolishExpression -> m (Validity, Cost, BoundingBoxes)
     runComputeCost pe = evalStateT (computeCost pe lambda aspectRatio) problem
 
     runAnnealing :: (MonadIO m) => Variables -> m Floorplan
@@ -230,15 +230,16 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
         Production -> return ()
         Demo -> do
           (_, _, boundingBoxes) <- use best
-          liftIO Console.clearScreen
+          -- liftIO Console.clearScreen
           terminalSize <- liftIO Console.getTerminalSize
           case terminalSize of
             Nothing ->
               return ()
             Just (_, _) -> do
-              liftIO $ Console.setCursorPosition 0 0 -- rows columns
+              -- liftIO $ Console.setCursorPosition 0 0 -- rows columns
+              -- print boundingBoxes
               Pretty.prettyPrint (Floorplan boundingBoxes)
-              liftIO $ threadDelay (10 ^ (5 :: Int))
+              -- liftIO $ threadDelay (10 ^ (5 :: Int))
 
     outerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
     outerLoop !it = do
@@ -268,7 +269,7 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
     innerLoop !it = do
       Variables {..} <- get
       newPE <- perturbate _gen (fst3 _current)
-      (isValid, newCost, newBB) <- runComputeCost newPE
+      (validity, newCost, newBB) <- runComputeCost newPE
       moves += 1
       let incrCost = newCost - (snd3 _current)
       randomValue <- rand
@@ -277,6 +278,9 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
         then do
           when (incrCost <= 0) $ downhill += 1
           current .= (newPE, newCost, newBB)
+          -- We need the isValid check because we start from an invalid solution (aspect ratio)
+          -- and we should *not* explore invalid solutions.
+          let isValid = validity == Valid
           when (isValid && newCost <= (snd3 _best)) $ do
             best .= (newPE, newCost, newBB)
             printPartialSolution
@@ -291,6 +295,8 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
 
 -- | Given an initial polish expression, apply a sequence of n random moves and
 -- compute the average of the magnitude of increment of cost at each move.
+--
+-- This is an approximation.
 avgIncrementByMove ::
   MonadIO m =>
   Random.GenIO ->
@@ -309,6 +315,9 @@ avgIncrementByMove gen lambda aspectRatio problem initialPE = flip evalStateT pr
 ------------------------------------------------------------------------------
 -- Polish Expression Cost
 
+data Validity = Valid | InvalidAspectRatio
+  deriving stock (Show, Eq)
+
 -- | Computes the cost of the best solution of a polish expression
 --
 -- The solution may not be valid:
@@ -321,13 +330,25 @@ computeCost ::
   PolishExpression ->
   Lambda ->
   Interval AspectRatio ->
-  m (Bool, Cost, BoundingBoxes)
+  m (Validity, Cost, BoundingBoxes)
 computeCost pe lambda aspectRatioInterval = do
   let slicingTree = toSlicingTree pe
   solutions <- traverse (computeCost' slicingTree) =<< getShapeCurves slicingTree
   returnBestSolution solutions
   where
-    returnBestSolution :: (MonadState Problem m) => [(Bool, Cost, BoundingBoxes)] -> m (Bool, Cost, BoundingBoxes)
+    -- Given the final shape of the bounding box, recursively deconstruct the bounding box of each module,
+    -- computes the minimum wiring length for the solution and return the cost (area + wiring).
+    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m (Validity, Cost, BoundingBoxes)
+    computeCost' slicingTree (Coordinate a b, info) = do
+      let moduleShapes = Map.fromList info
+          boundingBoxes = getBoundingBoxes moduleShapes slicingTree
+          area = a * b
+          validAspectRatio = if inside aspectRatioInterval $ AspectRatio (b / a) then Valid else InvalidAspectRatio
+      wirelength <- totalWireLength boundingBoxes
+      let cost = Cost (area + ((coerce lambda) * (coerce wirelength)))
+      return (validAspectRatio, cost, boundingBoxes)
+
+    returnBestSolution :: (MonadState Problem m) => [(Validity, Cost, BoundingBoxes)] -> m (Validity, Cost, BoundingBoxes)
     returnBestSolution solutions = do
       p <- use pproblem
       let problemModules = Map.keys p
@@ -335,16 +356,6 @@ computeCost pe lambda aspectRatioInterval = do
           includesAllModules (_, _, bbs) = Map.keys bbs == problemModules
           onlyValidSolutions = filter includesAllModules solutions
       return $ List.minimumBy (compare `on` snd3) onlyValidSolutions
-
-    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m (Bool, Cost, BoundingBoxes)
-    computeCost' slicingTree (Coordinate a b, info) = do
-      let moduleShapes = Map.fromList info
-          boundingBoxes = getBoundingBoxes moduleShapes slicingTree
-          area = a * b
-          validAspectRatio = inside aspectRatioInterval $ AspectRatio (b / a)
-      wirelength <- totalWireLength boundingBoxes
-      let cost = Cost (area + ((coerce lambda) * (coerce wirelength)))
-      return (validAspectRatio, cost, boundingBoxes)
 
 ------------------------------------------------------------------------------------
 -- Wirelength
@@ -400,6 +411,10 @@ totalWireLength boundingBoxes = do
        in acc + List.foldl' f (0 :: WireLength) connections
 
 -- | Returns the bounding box coordinates of each module.
+-- TODO
+-- TODO
+-- TODO
+-- TODO
 getBoundingBoxes :: IntMap Shape -> SlicingTree -> BoundingBoxes
 getBoundingBoxes moduleShapes = Map.fromList . snd . go (Coordinate 0 0)
   where
@@ -428,23 +443,27 @@ type ShapeCurve = (Coordinate, [(ModuleIndex, Shape)])
 
 type ShapeCurves = [ShapeCurve]
 
+-- TODO monoid
 getShapeCurves ::
   (MonadState Problem m) =>
   SlicingTree ->
   m ShapeCurves
-getShapeCurves (Leaf moduleIndex) = do
-  let sort' = List.sortBy (compare `on` (_x . fst))
-      toShapeCurves shape@(Shape (Width w, Height h)) =
-        (Coordinate {_x = fromIntegral w, _y = fromIntegral h}, [(moduleIndex, shape)])
-  sort' . (fmap toShapeCurves) <$> getShapes moduleIndex
 getShapeCurves (Branch left op right) = do
   l <- getShapeCurves left
   r <- getShapeCurves right
   return (combineShapeCurves op l r)
+getShapeCurves (Leaf moduleIndex) =
+  sort' . (fmap toShapeCurve) <$> getModuleShapes moduleIndex
+    where
+      sort' = List.sortBy (compare `on` (_x . fst))
+      toShapeCurve shape@(Shape (Width w, Height h)) =
+        (Coordinate {_x = fromIntegral w, _y = fromIntegral h}, [(moduleIndex, shape)])
 
-getShapes :: (MonadState Problem m) => ModuleIndex -> m [Shape]
-getShapes i = gets (\(Problem s) -> fst $ s ! i)
+-- | Returns the shapes associated to a module
+getModuleShapes :: (MonadState Problem m) => ModuleIndex -> m [Shape]
+getModuleShapes i = gets (\(Problem s) -> fst $ s ! i)
 
+-- | Combine two shape curves using the formulas from the paper.
 combineShapeCurves ::
   Operator ->
   ShapeCurves ->
@@ -464,27 +483,28 @@ combineShapeCurves op l r =
     intersectAndCombine curves (c@(Coordinate x1 y1), i) =
       let f = if op == V then reverse else id
           (Coordinate x2 y2, i') = intersection getXY (f curves) c
-          coord =
-            if op == V
-              then Coordinate {_x = x1 + x2, _y = max y1 y2}
-              else Coordinate {_x = max x1 x2, _y = y1 + y2}
           info = i ++ i'
+          coord = case op of
+            V -> Coordinate {_x = x1 + x2, _y = max y1 y2} -- A | B
+            H -> Coordinate {_x = max x1 x2, _y = y1 + y2}
        in (coord, info)
 
-    -- This only works if curves are sorted in 'x' increasing order for H
-    -- and 'y' increasing order for V
+    -- Hacky: works only if curves are sorted in 'x' increasing order for H and 'y' increasing order for V
+    -- This function avoid repeating permutations of shapes but it increasing the complexity by a lot.
+    -- FIXME you only need to compute permutations of shapes in the current setting.
+    --       This function can be simplified.
     intersection :: (Coordinate -> Double) -> ShapeCurves -> Coordinate -> ShapeCurve
-    intersection f (x : xs) c1 = go x xs
+    intersection getCoord (x : xs) c1 = go x xs
       where
         go previous [] = previous
         go previous (next@(c2, _) : rest)
-          | f c1 < f c2 = previous
+          | getCoord c1 < getCoord c2 = previous
           | otherwise = go next rest
     intersection _ _ _ = error "Empty shapeCurve!"
 
-    -- Sort 'x' in increasing order and 'y' in decreasing order.
-    -- Note, we are taking advantge of 'f' being a decreasing function
-    -- and points were already sorted at the leaves.
+    -- Sort 'x' in increasing order (implictly sorts 'y' in decreasing order because @f@ is a decreasing function).
+    --
+    -- Note, since points in previous ShapeCurves were sorted, we can sort faster.
     combineAndSort :: ShapeCurves -> ShapeCurves -> ShapeCurves
     combineAndSort [] ys = ys
     combineAndSort xs [] = xs
@@ -526,11 +546,9 @@ rand = liftIO . Random.uniformRM (0.0, 1.0) =<< getGen @s
 
 average :: (Fractional a) => [a] -> a
 average [] = error "Average of empty list."
-average xs =
-  let (n, x) = List.foldl' go (1 :: Int, head xs) (tail xs)
-   in x / fromIntegral n
-  where
-    go !(!n, !acc) x = (n + 1, acc + x)
+average xs = x / (fromIntegral n) where
+  go !(!n, !acc) x = (n + 1, acc + x)
+  (n, x) = List.foldl' go (1 :: Int, head xs) (tail xs)
 
 fst3 :: (a, b, c) -> a
 fst3 (a, _, _) = a

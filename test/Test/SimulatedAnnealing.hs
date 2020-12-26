@@ -256,12 +256,8 @@ costSpec = describe "Cost" $ do
             mkInterval (AspectRatio 0.5, AspectRatio 3)
           Just lambda =
             mkLambda 0.5
-          result = evalState (computeCost pe (DSometimes aspectRatioInterval) lambda) problem
-      case result of
-        Nothing ->
-          expectationFailure "Expected a Cost but nothing returned => Check 'computeCost'."
-        Just (cost, _) ->
-          cost `shouldBe` expectedCost
+          result = evalState (computeCost pe lambda aspectRatioInterval) problem
+      case result of (_, cost, _) -> cost `shouldBe` expectedCost
 
 annealingSpec :: Spec
 annealingSpec = describe "Annealing Schedule" $ do
@@ -278,10 +274,11 @@ annealingSpec = describe "Annealing Schedule" $ do
                 ]
           Just pe = initialPE 5
           Just lambda = mkLambda 1.0
+          Just aspectRatioInterval = mkInterval (AspectRatio 0.5, AspectRatio 3)
       gen' <- createSystemRandom
-      incr <- avgIncrementByMove gen' lambda problem pe
+      incr <- avgIncrementByMove gen' lambda aspectRatioInterval problem pe
       incr `shouldSatisfy` (> 0)
-      incrs <- replicateM 100 $ avgIncrementByMove gen' lambda problem pe
+      incrs <- replicateM 100 $ avgIncrementByMove gen' lambda aspectRatioInterval problem pe
       forM_ incrs $ flip shouldSatisfy (inConfidenceInterval 1.5 incr)
 
 -- | Is x2 \in [x1-(x1*p), x1+(x1*p)] ?

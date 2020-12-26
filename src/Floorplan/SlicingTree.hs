@@ -3,7 +3,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Floorplan.SlicingTree
-  ( SlicingTree (..),
+  ( Tree (..),
+    SlicingTree,
     toSlicingTree,
     toPolishExpression,
   )
@@ -16,12 +17,19 @@ import Floorplan.Types
 
 -----------------------------------------------------------
 
-data SlicingTree where
-  Leaf :: ModuleIndex -> SlicingTree
-  Branch :: SlicingTree -> Operator -> SlicingTree -> SlicingTree
+data Tree a b where
+  Leaf :: a -> Tree a b
+  Branch :: Tree a b -> b -> Tree a b -> Tree a b
   deriving stock (Show, Eq)
 
+-- deriving stock instance (Show a, Show b) => Show (Tree a b)
+-- deriving stock instance (Eq a, Eq b) => Eq (Tree a b)
+
+type SlicingTree = Tree ModuleIndex Operator
+
 -- | There is a 1-1 correspondence between normalized polish expressions and skewed slicing tress.
+--
+-- Undo postorder traversal
 toSlicingTree :: PolishExpression -> SlicingTree
 toSlicingTree =
   check . go . reverse . _pe
@@ -38,6 +46,7 @@ toSlicingTree =
           (l, xs'') = go xs'
        in (Branch l op r, xs'')
 
+-- Postorder traversal
 toPolishExpression :: SlicingTree -> PolishExpression
 toPolishExpression tree = PolishExpression (go tree)
   where
