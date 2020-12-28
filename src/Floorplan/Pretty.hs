@@ -32,6 +32,7 @@ data DBoundingBox = DBoundingBox {x_bl :: Int, y_bl :: Int, x_tr :: Int, y_t :: 
 
 toDBB :: BoundingBox -> DBoundingBox
 toDBB (BoundingBox' x_bl y_bl x_tr y_tr) = DBoundingBox (floor x_bl) (floor y_bl) (floor x_tr) (floor y_tr)
+toDBB _ = error "non-exhaustive pattern match ???"
 
 toMatrix :: Floorplan -> Matrix ModuleIndex
 toMatrix (Floorplan boundingBoxes) =
@@ -45,12 +46,14 @@ toMatrix (Floorplan boundingBoxes) =
       let getY (_, (BoundingBox _ (Coordinate _ y))) = floor y
        in maximum . fmap getY . Map.toList $ boundingBoxes
 
+    -- Indexed at 1
     matrix = Matrix.zero nRows nColumns :: Matrix ModuleIndex
 
     discreteBoundingBoxes = (fmap . fmap) toDBB $ Map.toList boundingBoxes
 
     fillMatrix :: Int -> Matrix ModuleIndex -> (ModuleIndex, DBoundingBox) -> Matrix ModuleIndex
     fillMatrix rows matrix (moduleIndex, DBoundingBox x_bl y_bl x_tr y_tr) =
+      -- From 0 to n-1, but matrix are index at 1 so from 1 to n.
       List.foldl' go matrix [(n, m) | n <- [y_bl + 1 .. y_tr], m <- [x_bl + 1 .. x_tr]]
       where
         -- Row/Column from 1 to n

@@ -155,6 +155,14 @@ boundingBoxSpec = describe "Bounding box" $ do
   it "should return the bounding box coordinates" $ do
     let slicingTree =
           toSlicingTree $ parsePolishExpression' "12*3+45+*"
+      {-
+        +--------+---+
+        |   3    | 5 |
+        +---+----|   |
+        | 1 | 2  +---+
+        |   |    | 4 |
+        +---+----+---+
+      -}
 
         moduleShapes =
           Map.fromList
@@ -172,6 +180,35 @@ boundingBoxSpec = describe "Bounding box" $ do
               (3, BoundingBox' 0 3 4 5),
               (4, BoundingBox' 4 0 6 2),
               (5, BoundingBox' 4 2 6 5)
+            ]
+        result = getBoundingBoxes moduleShapes slicingTree
+
+    result `shouldBe` expected
+
+  it "should return the bounding box coordinates taking gaps into accont" $ do
+    let slicingTree =
+          toSlicingTree $ parsePolishExpression' "23*1+"
+      {-
+        +---------+
+        |   1     |
+        +-----+---|
+        |  2  |---|
+        |     | 3 |
+        +-----+---+
+      -}
+
+        moduleShapes =
+          Map.fromList
+            [ (1, Shape' 4 1),
+              (2, Shape' 3 3),
+              (3, Shape' 1 2)
+            ]
+
+        expected =
+          Map.fromList
+            [ (1, BoundingBox' 0 3 4 4),
+              (2, BoundingBox' 0 0 3 3),
+              (3, BoundingBox' 3 0 4 2)
             ]
         result = getBoundingBoxes moduleShapes slicingTree
 

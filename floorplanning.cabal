@@ -55,10 +55,11 @@ common common-library-and-tests
                       mwc-random           >=0.15.0.0 && <0.16.0.0,
                       time                 >=1.9      && <1.10,
                       text                 >=1.2.3.0  && <2.0.0.0,
-                      vector               >=0.11.0.0 && <0.13.0.0
+                      vector               >=0.11.0.0 && <0.13.0.0,
 
   other-modules:      Floorplan.PolishExpression
                       Floorplan.Pretty
+                      Floorplan.Problem
                       Floorplan.SimulatedAnnealing
                       Floorplan.SlicingTree
                       Floorplan.Types
@@ -98,7 +99,7 @@ Test-suite floorplanning-tests
 
   build-depends:        hspec             >=2.6.0    && <2.8,
                         hspec-core        >=2.6.0    && <2.8,
-                        QuickCheck        >=2.14     && <2.15
+                        QuickCheck        >=2.14     && <2.15,
 
   ghc-options:          -Wall
                         -Wincomplete-uni-patterns

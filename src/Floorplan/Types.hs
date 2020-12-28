@@ -8,6 +8,7 @@ module Floorplan.Types
   , Height(..)
   , Width(..)
   , Shape(.., Shape')
+  , rotate90degrees
   , WireLength(..)
   , AspectRatio(..)
   , Interval
@@ -40,6 +41,10 @@ newtype Shape = Shape (Width, Height) deriving stock (Show, Eq, Ord)
 
 pattern Shape' :: Int -> Int -> Shape
 pattern Shape' w h = Shape ((Width w), (Height h))
+
+rotate90degrees :: Shape -> Shape
+rotate90degrees (Shape' w h) = Shape' h w
+rotate90degrees _ = error "non-exhaustive pattern match ?"
 
 --------------------------------
 
@@ -94,6 +99,7 @@ pattern BoundingBox' x_bl y_bl x_tr y_tr <- BoundingBox (Coordinate !x_bl !y_bl)
 
 computeCenter :: BoundingBox -> Coordinate
 computeCenter (BoundingBox' x_bl y_bl x_tr y_tr) = Coordinate ((x_bl + x_tr) / 2) ((y_bl + y_tr) / 2)
+computeCenter _ = error "incomplete-uni-patterns???"
 
 --------------------------------
 

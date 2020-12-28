@@ -42,6 +42,7 @@ prettySpec = do
                 [1, 1, 2, 2, 2, 4, 4, 4, 4, 4],
                 [1, 1, 2, 2, 2, 4, 4, 4, 4, 4]
               ]
+
       pretty floorplan `shouldBe` Matrix.prettyMatrix expectedMatrix
 
     it "should print another floorplan in matrix form" $ do

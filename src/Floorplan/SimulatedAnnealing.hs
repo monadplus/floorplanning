@@ -52,6 +52,7 @@ import qualified System.Console.ANSI as Console
 import qualified System.Random.MWC as Random
 import Prelude hiding (print)
 import qualified Prelude
+import Floorplan.Problem
 
 -----------------------------------------------------------------------------------
 
@@ -90,32 +91,6 @@ mkCoolingRate d
 
 defaultCoolingRate :: CoolingRate
 defaultCoolingRate = 0.85
-
-newtype Problem = Problem
-  { _pproblem :: IntMap ([Shape], [ModuleIndex])
-  }
-
-makeLenses ''Problem
-
-problemSize :: Problem -> Int
-problemSize = length . Map.keys . _pproblem
-
--- |
--- Properties of a valid problem:
---   * Modules numbered from 1 to n
---   * One shape per module
---   * Modules connected to existent modules.
-mkProblem :: IntMap ([Shape], [ModuleIndex]) -> Either String Problem
-mkProblem problem = do
-  let modules = Map.keys problem
-      n = List.length modules
-      (listOfShapes, listOfConnections) = unzip (Map.elems problem)
-  unless (maximum modules == n) $ Left "Modules numbered from 1 to n."
-  when (any null listOfShapes) $ Left "At least one shape per module."
-  forM_ listOfConnections $ \connections -> do
-    when (any (> n) connections) $ Left "Module does not exist."
-    unless (length (List.nub connections) == List.length connections) $ Left "Connection repeated."
-  return $ Problem problem
 
 newtype Temperature = Temperature Double
   deriving newtype (Show, Eq, Ord, Num, Fractional)
@@ -230,16 +205,15 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
         Production -> return ()
         Demo -> do
           (_, _, boundingBoxes) <- use best
-          -- liftIO Console.clearScreen
+          liftIO Console.clearScreen
           terminalSize <- liftIO Console.getTerminalSize
           case terminalSize of
             Nothing ->
               return ()
             Just (_, _) -> do
-              -- liftIO $ Console.setCursorPosition 0 0 -- rows columns
-              -- print boundingBoxes
+              liftIO $ Console.setCursorPosition 0 0 -- rows columns
               Pretty.prettyPrint (Floorplan boundingBoxes)
-              -- liftIO $ threadDelay (10 ^ (5 :: Int))
+              liftIO $ threadDelay (10 ^ (5 :: Int))
 
     outerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
     outerLoop !it = do
@@ -262,7 +236,7 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
       let rejectRate = (fromIntegral _rejects / fromIntegral _moves) :: Double
           timeDiff = Clock.diffUTCTime currentTime _startTime
           timeOutAfter = (300 :: Clock.NominalDiffTime) -- 5 minutes
-      when (timeDiff > timeOutAfter) $ print "Time out!"
+      when (timeDiff > timeOutAfter) $ print @String "Time out!"
       return (rejectRate > 0.95 || _currentTmp < _finalTmp || timeDiff > timeOutAfter)
 
     innerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
@@ -281,7 +255,7 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
           -- We need the isValid check because we start from an invalid solution (aspect ratio)
           -- and we should *not* explore invalid solutions.
           let isValid = validity == Valid
-          when (isValid && newCost <= (snd3 _best)) $ do
+          when (isValid && newCost < (snd3 _best)) $ do
             best .= (newPE, newCost, newBB)
             printPartialSolution
         else rejects += 1
@@ -400,50 +374,51 @@ totalWireLength boundingBoxes = do
   Problem problem <- get
   return $ Map.foldlWithKey' (go centers) (0 :: WireLength) problem
   where
-    go :: IntMap Coordinate -> WireLength -> ModuleIndex -> ([Shape], [ModuleIndex]) -> WireLength
+    go :: IntMap Coordinate -> WireLength -> ModuleIndex -> (x, [ModuleIndex]) -> WireLength
     go centers !acc moduleIndex (_, connections) =
       let getCenter i = centers ! i
           c1 = getCenter moduleIndex
-          -- Avoid double counting distances
           f acc moduleIndex2
-            | moduleIndex2 > moduleIndex = (+ acc) . coerce . manhattanDistance c1 . getCenter $ moduleIndex2
+            -- Avoid double counting distances
+            | moduleIndex2 > moduleIndex = (+ acc) . coerce . manhattanDistance c1 $ getCenter moduleIndex2
             | otherwise = acc
        in acc + List.foldl' f (0 :: WireLength) connections
 
 -- | Returns the bounding box coordinates of each module.
--- TODO
--- TODO
--- TODO
--- TODO
 getBoundingBoxes :: IntMap Shape -> SlicingTree -> BoundingBoxes
 getBoundingBoxes moduleShapes = Map.fromList . snd . go (Coordinate 0 0)
   where
+    getShape :: ModuleIndex -> Shape
     getShape moduleIndex = moduleShapes ! moduleIndex
+
+    getTopRight :: Coordinate -> Shape -> Coordinate
     getTopRight (Coordinate x y) (Shape' w h) = Coordinate (x + fromIntegral w) (y + fromIntegral h)
+    getTopRight (Coordinate _ _) _ = error "incomplete-uni-pattern???"
 
     go :: Coordinate -> SlicingTree -> (BoundingBox, [(ModuleIndex, BoundingBox)])
     go bottomLeft (Leaf moduleIndex) =
-      let topRight = getTopRight bottomLeft (getShape moduleIndex)
+      let moduleShape = getShape moduleIndex
+          topRight = getTopRight bottomLeft moduleShape
           boundingBox = BoundingBox bottomLeft topRight
        in (boundingBox, [(moduleIndex, boundingBox)])
     go bottomLeft (Branch l V r) =
-      let (BoundingBox bl@(Coordinate _ y1) (Coordinate x2 _), info1) = go bottomLeft l
-          (BoundingBox _ tr, info2) = go (Coordinate x2 y1) r
+      let (BoundingBox bl@(Coordinate _ y1) (Coordinate x2 y2), info1) = go bottomLeft l
+          (BoundingBox                   _  (Coordinate x2' y2'), info2) = go (Coordinate x2 y1) r
+          tr = Coordinate x2' (max y2 y2')
        in (BoundingBox bl tr, info1 ++ info2)
     go bottomLeft (Branch l H r) =
-      let (BoundingBox bl@(Coordinate x1 _) (Coordinate _ y2), info1) = go bottomLeft l
-          (BoundingBox _ tr, info2) = go (Coordinate x1 y2) r
+      let (BoundingBox bl@(Coordinate x1 _) (Coordinate x2 y2), info1) = go bottomLeft l
+          (BoundingBox                    _ (Coordinate x2' y2'), info2) = go (Coordinate x1 y2) r
+          tr = Coordinate (max x2 x2') y2'
        in (BoundingBox bl tr, info1 ++ info2)
 
 -----------------------------------------------------------------------------------
 -- Shape Curves
 
---             shape of the curve
 type ShapeCurve = (Coordinate, [(ModuleIndex, Shape)])
 
 type ShapeCurves = [ShapeCurve]
 
--- TODO monoid
 getShapeCurves ::
   (MonadState Problem m) =>
   SlicingTree ->
@@ -459,9 +434,9 @@ getShapeCurves (Leaf moduleIndex) =
       toShapeCurve shape@(Shape (Width w, Height h)) =
         (Coordinate {_x = fromIntegral w, _y = fromIntegral h}, [(moduleIndex, shape)])
 
--- | Returns the shapes associated to a module
-getModuleShapes :: (MonadState Problem m) => ModuleIndex -> m [Shape]
-getModuleShapes i = gets (\(Problem s) -> fst $ s ! i)
+      -- | Returns the shapes associated to a module
+      getModuleShapes :: (MonadState Problem m) => ModuleIndex -> m [Shape]
+      getModuleShapes i = gets (\(Problem s) -> fst $ s ! i)
 
 -- | Combine two shape curves using the formulas from the paper.
 combineShapeCurves ::
@@ -559,5 +534,5 @@ snd3 (_, b, _) = b
 thrd3 :: (a, b, c) -> c
 thrd3 (_, _, c) = c
 
-print :: (MonadIO m, Show a) => a -> m ()
+print :: forall a m. (MonadIO m, Show a) => a -> m ()
 print = liftIO . Prelude.print
