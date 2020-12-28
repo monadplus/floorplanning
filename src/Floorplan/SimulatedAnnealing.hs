@@ -65,6 +65,9 @@ mkLambda d
   | d >= 0 && d <= 1 = Just (coerce d)
   | otherwise = Nothing
 
+instance Read Lambda where
+  readsPrec = readInstance (toEither "Error: expected lambda [0,1]" . mkLambda)
+
 -- | Gamma as in section 2.5 Annealing Schedule
 newtype Gamma = Gamma {_gamma :: Int}
   deriving newtype (Show, Eq, Ord, Num)
@@ -74,6 +77,9 @@ mkGamma :: Int -> Maybe Gamma
 mkGamma x
   | 0 < x && x < 100 = Just (coerce x)
   | otherwise = Nothing
+
+instance Read Gamma where
+  readsPrec = readInstance (toEither "Error: expected gamma (0,100)" . mkGamma)
 
 -- | Slides suggest 5-10
 defaultGamma :: Gamma
@@ -89,16 +95,19 @@ mkCoolingRate d
   | d > 0 && d < 1 = Just (coerce d)
   | otherwise = Nothing
 
+instance Read CoolingRate where
+  readsPrec = readInstance (toEither "Error: expected cooling rate (0,1)" . mkCoolingRate)
+
 defaultCoolingRate :: CoolingRate
 defaultCoolingRate = 0.85
 
 newtype Temperature = Temperature Double
   deriving newtype (Show, Eq, Ord, Num, Fractional)
 
-data Mode = Production | Demo
-  deriving stock (Read, Show, Eq, Ord, Enum)
+data Mode = Production FilePath | Demo Int
+  deriving stock (Read, Show, Eq, Ord)
 
-data Config = Config
+data Configuration = Configuration
   { _cProblem :: Problem,
     _cAspectRatio :: Interval AspectRatio,
     _cLambda :: Lambda,
@@ -108,7 +117,7 @@ data Config = Config
   }
   deriving stock (Generic)
 
-makeLenses ''Config
+makeLenses ''Configuration
 
 ---------------------------------------------------------------------
 -- Annealing Schedule
@@ -156,8 +165,8 @@ makeLenses ''Variables
 > until (reject / #moves > 0.95) or (T <= T_final) or OutOfTime
 > return Best
 -}
-simulatedAnnealing :: MonadIO m => Config -> m Floorplan
-simulatedAnnealing Config{..} = do
+simulatedAnnealing :: MonadIO m => Configuration -> m Floorplan
+simulatedAnnealing Configuration{..} = do
   simulatedAnnealing' _cProblem _cAspectRatio _cLambda _cCoolingRate _cGamma _cMode
 
 simulatedAnnealing' ::
@@ -202,8 +211,8 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
     printPartialSolution :: (MonadState Variables m, MonadIO m) => m ()
     printPartialSolution =
       case mode of
-        Production -> return ()
-        Demo -> do
+        Production _ -> return ()
+        Demo _ -> do
           (_, _, boundingBoxes) <- use best
           liftIO Console.clearScreen
           terminalSize <- liftIO Console.getTerminalSize

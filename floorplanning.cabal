@@ -24,8 +24,7 @@ Executable floorplanning
   default-language:      Haskell2010
   main-is:               Main.hs
   hs-source-dirs:        app
-  other-modules:         Config
-                         Demo
+  -- other-modules:
 
   build-depends:         floorplanning,
                          ansi-terminal        >=0.11     && <0.12,
@@ -51,6 +50,7 @@ common common-library-and-tests
                       microlens            >=0.4.11   && <0.4.12,
                       microlens-mtl        >=0.2      && <0.3,
                       microlens-th         >=0.4.3    && <0.4.4,
+                      megaparsec           >=9.0.0    && <10.0,
                       mtl                  >=2.2.0    && <2.3,
                       mwc-random           >=0.15.0.0 && <0.16.0.0,
                       time                 >=1.9      && <1.10,
@@ -60,6 +60,7 @@ common common-library-and-tests
   other-modules:      Floorplan.PolishExpression
                       Floorplan.Pretty
                       Floorplan.Problem
+                      Floorplan.Report
                       Floorplan.SimulatedAnnealing
                       Floorplan.SlicingTree
                       Floorplan.Types

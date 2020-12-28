@@ -32,6 +32,11 @@ module Floorplan.Problem
     -- * Generator
     genProblem,
 
+    -- * Parser
+    parseProblem,
+    parseProblemFile,
+    parseProblemFile',
+
     -- * Lenses
     pproblem,
   )
@@ -47,6 +52,12 @@ import Floorplan.Types
 import Lens.Micro.TH
 import qualified System.Random.MWC as Random
 import Prelude hiding (print)
+import Data.Text (Text)
+import qualified Data.Text as Text
+import qualified Data.Text.IO as Text
+import Text.Megaparsec
+import Data.Void
+import Data.Bifunctor
 
 newtype Problem = Problem
   { _pproblem :: IntMap ([Shape], [ModuleIndex])
@@ -104,3 +115,19 @@ genProblem n = genProblem' =<< liftIO Random.createSystemRandom
         genWires moduleIndex = filterM (const p) [moduleIndex + 1 .. n]
           where
             p = return . (< (0.25 :: Double)) =<< (liftIO $ Random.uniform g)
+
+parseProblemFile :: FilePath -> IO (Either String Problem)
+parseProblemFile fp = do
+  str <- Text.readFile fp
+  return $ first errorBundlePretty (parseProblem str)
+
+parseProblemFile' :: FilePath -> IO Problem
+parseProblemFile' fp = do
+  r <- parseProblemFile fp
+  case r of
+    Left err -> error err
+    Right x -> return x
+
+-- | Parse a raw problem
+parseProblem :: Text -> Either (ParseErrorBundle Text Void) Problem
+parseProblem = undefined

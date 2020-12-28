@@ -18,11 +18,11 @@ Objective: minimize global bounding box subject to aspect ratio constraints
            a*area(F) + (1 - a)*L(F)     0 <= a <= 1
 -}
 module Floorplan
-  ( -- * Annealing Schedule: main function
+  ( -- * Annealing Schedule
     simulatedAnnealing,
 
-    -- * Data Types
-    Config(..),
+    -- ** Parameters
+    Configuration(..),
     Mode(..),
     Lambda,
     mkLambda,
@@ -32,17 +32,12 @@ module Floorplan
     CoolingRate,
     mkCoolingRate,
     defaultCoolingRate,
-    Problem,
-    mkProblem,
-    genProblem,
-
-    -- * Pretty printer of the solution
-    module Floorplan.Pretty,
-
-    -- * Floorplan Types
-    module Floorplan.Types,
 
     -- * Reexports
+    module Floorplan.Pretty,
+    module Floorplan.Types,
+    module Floorplan.Report,
+    module Floorplan.Problem,
     module Data.IntMap.Strict,
   )
 where
@@ -52,3 +47,4 @@ import Floorplan.Pretty
 import Floorplan.SimulatedAnnealing
 import Floorplan.Types
 import Floorplan.Problem
+import Floorplan.Report

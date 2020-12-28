@@ -21,6 +21,8 @@ module Floorplan.Types
   , BoundingBoxes
   , computeCenter
   , Floorplan(..)
+  , toEither
+  , readInstance
   )where
 
 ----------------------------------------------------------------------------------
@@ -54,12 +56,15 @@ newtype WireLength = WireLength {_wireLength :: Double}
 --------------------------------
 
 newtype AspectRatio = AspectRatio {_aspectRatio :: Double}
-  deriving newtype (Show, Eq, Ord, Num, Fractional)
+  deriving newtype (Read, Show, Eq, Ord, Num, Fractional)
 
 --------------------------------
 
 newtype Interval a = Interval {_interval :: (a, a)}
   deriving newtype (Show, Eq)
+
+instance (Read a, Ord a) => Read (Interval a) where
+  readsPrec = readInstance (toEither "Error: invalid interval" . mkInterval)
 
 mkInterval :: (Ord a) => (a, a) -> Maybe (Interval a)
 mkInterval interval@(a, b)
@@ -104,3 +109,19 @@ computeCenter _ = error "incomplete-uni-patterns???"
 --------------------------------
 
 newtype Floorplan = Floorplan { _floorplan :: BoundingBoxes }
+
+---------------------------------
+
+toEither :: String -> Maybe a -> Either String a
+toEither err = maybe (Left err) Right
+
+readInstance :: Read b => (b -> Either String a) -> Int -> ReadS a
+readInstance constr d s =
+    [ (a, s')
+    | (b, s') <- readsPrec d s,
+      let a =
+            case constr b of
+              Left err -> error err
+              Right a -> a
+    ]
+
