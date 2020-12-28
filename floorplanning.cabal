@@ -53,6 +53,7 @@ common common-library-and-tests
                       megaparsec           >=9.0.0    && <10.0,
                       mtl                  >=2.2.0    && <2.3,
                       mwc-random           >=0.15.0.0 && <0.16.0.0,
+                      tabular              >=0.2.0.0  && <0.3.0,
                       time                 >=1.9      && <1.10,
                       text                 >=1.2.3.0  && <2.0.0.0,
                       vector               >=0.11.0.0 && <0.13.0.0,

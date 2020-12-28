@@ -64,6 +64,7 @@ mkLambda :: Double -> Maybe Lambda
 mkLambda d
   | d >= 0 && d <= 1 = Just (coerce d)
   | otherwise = Nothing
+{-# INLINE mkLambda #-}
 
 instance Read Lambda where
   readsPrec = readInstance (toEither "Error: expected lambda [0,1]" . mkLambda)
@@ -77,6 +78,7 @@ mkGamma :: Int -> Maybe Gamma
 mkGamma x
   | 0 < x && x < 100 = Just (coerce x)
   | otherwise = Nothing
+{-# INLINE mkGamma #-}
 
 instance Read Gamma where
   readsPrec = readInstance (toEither "Error: expected gamma (0,100)" . mkGamma)
@@ -94,6 +96,7 @@ mkCoolingRate :: Double -> Maybe CoolingRate
 mkCoolingRate d
   | d > 0 && d < 1 = Just (coerce d)
   | otherwise = Nothing
+{-# INLINE mkCoolingRate #-}
 
 instance Read CoolingRate where
   readsPrec = readInstance (toEither "Error: expected cooling rate (0,1)" . mkCoolingRate)
@@ -107,24 +110,29 @@ newtype Temperature = Temperature Double
 data Mode = Production FilePath | Demo Int
   deriving stock (Read, Show, Eq, Ord)
 
-data Configuration = Configuration
-  { _cProblem :: Problem,
-    _cAspectRatio :: Interval AspectRatio,
-    _cLambda :: Lambda,
-    _cCoolingRate :: CoolingRate,
-    _cGamma :: Gamma,
-    _cMode :: Mode
+data Parameters = Parameters
+  { mode :: Mode
+  , aspectRatio :: Interval AspectRatio
+  , lambda :: Lambda
+  , coolingRate :: CoolingRate
+  , gamma :: Gamma
+  }
+  deriving stock Show
+
+data Input = Input
+  { _iProblem :: Problem,
+    _iParams :: Parameters
   }
   deriving stock (Generic)
 
-makeLenses ''Configuration
+makeLenses ''Input
 
 ---------------------------------------------------------------------
 -- Annealing Schedule
 
 data Variables = Variables
-  { _best :: (PolishExpression, Cost, BoundingBoxes),
-    _current :: (PolishExpression, Cost, BoundingBoxes),
+  { _best :: (PolishExpression, Cost, IntMap BoundingBox),
+    _current :: (PolishExpression, Cost, IntMap BoundingBox),
     _currentTmp :: Temperature,
     _finalTmp :: Temperature,
     _gen :: Random.GenIO,
@@ -165,9 +173,10 @@ makeLenses ''Variables
 > until (reject / #moves > 0.95) or (T <= T_final) or OutOfTime
 > return Best
 -}
-simulatedAnnealing :: MonadIO m => Configuration -> m Floorplan
-simulatedAnnealing Configuration{..} = do
-  simulatedAnnealing' _cProblem _cAspectRatio _cLambda _cCoolingRate _cGamma _cMode
+simulatedAnnealing :: MonadIO m => Input -> m Floorplan
+simulatedAnnealing (Input problem Parameters{..}) = do
+  simulatedAnnealing' problem aspectRatio lambda  coolingRate gamma mode
+{-# INLINE simulatedAnnealing #-}
 
 simulatedAnnealing' ::
   MonadIO m =>
@@ -199,14 +208,16 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
       _rejects = 0
   runAnnealing Variables {..}
   where
-    runComputeCost :: (MonadIO m) => PolishExpression -> m (Validity, Cost, BoundingBoxes)
+    runComputeCost :: (MonadIO m) => PolishExpression -> m (Validity, Cost, IntMap BoundingBox)
     runComputeCost pe = evalStateT (computeCost pe lambda aspectRatio) problem
+    {-# INLINE runComputeCost #-}
 
     runAnnealing :: (MonadIO m) => Variables -> m Floorplan
     runAnnealing variables = do
       Variables {..} <- execStateT (outerLoop 1) variables
       let (_, _, boundingBoxes) = _best
       return (Floorplan boundingBoxes)
+    {-# INLINE runAnnealing #-}
 
     printPartialSolution :: (MonadState Variables m, MonadIO m) => m ()
     printPartialSolution =
@@ -214,15 +225,16 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
         Production _ -> return ()
         Demo _ -> do
           (_, _, boundingBoxes) <- use best
-          liftIO Console.clearScreen
           terminalSize <- liftIO Console.getTerminalSize
           case terminalSize of
             Nothing ->
               return ()
             Just (_, _) -> do
-              liftIO $ Console.setCursorPosition 0 0 -- rows columns
               Pretty.prettyPrint (Floorplan boundingBoxes)
-              liftIO $ threadDelay (10 ^ (5 :: Int))
+              --liftIO $ threadDelay (10 ^ (5 :: Int))
+              liftIO Console.clearScreen
+              liftIO $ Console.setCursorPosition 0 0 -- rows columns
+    {-# INLINE printPartialSolution #-}
 
     outerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
     outerLoop !it = do
@@ -234,6 +246,7 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
         rejects .= 0
         downhill .= 0
         outerLoop (it + 1)
+    {-# INLINE outerLoop #-}
 
     -- The reject rate is too high because
     --   * the temperature is too low and/or
@@ -247,6 +260,7 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
           timeOutAfter = (300 :: Clock.NominalDiffTime) -- 5 minutes
       when (timeDiff > timeOutAfter) $ print @String "Time out!"
       return (rejectRate > 0.95 || _currentTmp < _finalTmp || timeDiff > timeOutAfter)
+    {-# INLINE outerStopCondition #-}
 
     innerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
     innerLoop !it = do
@@ -270,11 +284,13 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
         else rejects += 1
       stop <- innerStopCondition
       unless stop $ innerLoop (it + 1)
+    {-# INLINE innerLoop #-}
 
     innerStopCondition :: (MonadState Variables m) => m Bool
     innerStopCondition = do
       Variables {..} <- get
       return (_downhill >= _bigN || _moves >= 2 * _bigN)
+    {-# INLINE innerStopCondition #-}
 
 -- | Given an initial polish expression, apply a sequence of n random moves and
 -- compute the average of the magnitude of increment of cost at each move.
@@ -294,6 +310,7 @@ avgIncrementByMove gen lambda aspectRatio problem initialPE = flip evalStateT pr
   initialCost <- getCost initialPE
   perturbationsCosts <- replicateM n (getCost =<< perturbate gen initialPE)
   return . average . fmap (coerce . abs . subtract initialCost) $ perturbationsCosts
+{-# INLINE avgIncrementByMove #-}
 
 ------------------------------------------------------------------------------
 -- Polish Expression Cost
@@ -313,7 +330,8 @@ computeCost ::
   PolishExpression ->
   Lambda ->
   Interval AspectRatio ->
-  m (Validity, Cost, BoundingBoxes)
+  m (Validity, Cost, IntMap BoundingBox)
+{-# INLINE computeCost #-}
 computeCost pe lambda aspectRatioInterval = do
   let slicingTree = toSlicingTree pe
   solutions <- traverse (computeCost' slicingTree) =<< getShapeCurves slicingTree
@@ -321,7 +339,7 @@ computeCost pe lambda aspectRatioInterval = do
   where
     -- Given the final shape of the bounding box, recursively deconstruct the bounding box of each module,
     -- computes the minimum wiring length for the solution and return the cost (area + wiring).
-    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m (Validity, Cost, BoundingBoxes)
+    computeCost' :: (MonadState Problem m) => SlicingTree -> ShapeCurve -> m (Validity, Cost, IntMap BoundingBox)
     computeCost' slicingTree (Coordinate a b, info) = do
       let moduleShapes = Map.fromList info
           boundingBoxes = getBoundingBoxes moduleShapes slicingTree
@@ -330,8 +348,9 @@ computeCost pe lambda aspectRatioInterval = do
       wirelength <- totalWireLength boundingBoxes
       let cost = Cost (area + ((coerce lambda) * (coerce wirelength)))
       return (validAspectRatio, cost, boundingBoxes)
+    {-# INLINE computeCost' #-}
 
-    returnBestSolution :: (MonadState Problem m) => [(Validity, Cost, BoundingBoxes)] -> m (Validity, Cost, BoundingBoxes)
+    returnBestSolution :: (MonadState Problem m) => [(Validity, Cost, IntMap BoundingBox)] -> m (Validity, Cost, IntMap BoundingBox)
     returnBestSolution solutions = do
       p <- use pproblem
       let problemModules = Map.keys p
@@ -339,6 +358,7 @@ computeCost pe lambda aspectRatioInterval = do
           includesAllModules (_, _, bbs) = Map.keys bbs == problemModules
           onlyValidSolutions = filter includesAllModules solutions
       return $ List.minimumBy (compare `on` snd3) onlyValidSolutions
+    {-# INLINE returnBestSolution #-}
 
 ------------------------------------------------------------------------------------
 -- Wirelength
@@ -376,8 +396,9 @@ Manhatten distance.
 
 totalWireLength ::
   (MonadState Problem m) =>
-  BoundingBoxes ->
+  IntMap BoundingBox ->
   m WireLength
+{-# INLINE totalWireLength #-}
 totalWireLength boundingBoxes = do
   let centers = computeCenter <$> boundingBoxes
   Problem problem <- get
@@ -392,19 +413,24 @@ totalWireLength boundingBoxes = do
             | moduleIndex2 > moduleIndex = (+ acc) . coerce . manhattanDistance c1 $ getCenter moduleIndex2
             | otherwise = acc
        in acc + List.foldl' f (0 :: WireLength) connections
+    {-# INLINE go #-}
 
 -- | Returns the bounding box coordinates of each module.
-getBoundingBoxes :: IntMap Shape -> SlicingTree -> BoundingBoxes
+getBoundingBoxes :: IntMap Shape -> SlicingTree -> IntMap BoundingBox
+{-# INLINE getBoundingBoxes #-}
 getBoundingBoxes moduleShapes = Map.fromList . snd . go (Coordinate 0 0)
   where
     getShape :: ModuleIndex -> Shape
     getShape moduleIndex = moduleShapes ! moduleIndex
+    {-# INLINE getShape #-}
 
     getTopRight :: Coordinate -> Shape -> Coordinate
     getTopRight (Coordinate x y) (Shape' w h) = Coordinate (x + fromIntegral w) (y + fromIntegral h)
     getTopRight (Coordinate _ _) _ = error "incomplete-uni-pattern???"
+    {-# INLINE getTopRight #-}
 
     go :: Coordinate -> SlicingTree -> (BoundingBox, [(ModuleIndex, BoundingBox)])
+    {-# INLINE go #-}
     go bottomLeft (Leaf moduleIndex) =
       let moduleShape = getShape moduleIndex
           topRight = getTopRight bottomLeft moduleShape
@@ -432,6 +458,7 @@ getShapeCurves ::
   (MonadState Problem m) =>
   SlicingTree ->
   m ShapeCurves
+{-# INLINE getShapeCurves #-}
 getShapeCurves (Branch left op right) = do
   l <- getShapeCurves left
   r <- getShapeCurves right
@@ -440,12 +467,16 @@ getShapeCurves (Leaf moduleIndex) =
   sort' . (fmap toShapeCurve) <$> getModuleShapes moduleIndex
     where
       sort' = List.sortBy (compare `on` (_x . fst))
+      {-# INLINE sort' #-}
+
       toShapeCurve shape@(Shape (Width w, Height h)) =
         (Coordinate {_x = fromIntegral w, _y = fromIntegral h}, [(moduleIndex, shape)])
+      {-# INLINE toShapeCurve #-}
 
       -- | Returns the shapes associated to a module
       getModuleShapes :: (MonadState Problem m) => ModuleIndex -> m [Shape]
       getModuleShapes i = gets (\(Problem s) -> fst $ s ! i)
+      {-# INLINE getModuleShapes #-}
 
 -- | Combine two shape curves using the formulas from the paper.
 combineShapeCurves ::
@@ -453,6 +484,7 @@ combineShapeCurves ::
   ShapeCurves ->
   ShapeCurves ->
   ShapeCurves
+{-# INLINE combineShapeCurves #-}
 combineShapeCurves op l r =
   let limit = maximum $ fmap (minimum . fmap (getXY . fst)) [l, r]
       aboveLimit = filter ((>= limit) . getXY . fst)
@@ -462,6 +494,7 @@ combineShapeCurves op l r =
    in removeDuplicates $ combineAndSort lCurves rCurves
   where
     getXY = if op == V then _y else _x
+    {-# INLINE getXY #-}
 
     intersectAndCombine :: ShapeCurves -> ShapeCurve -> ShapeCurve
     intersectAndCombine curves (c@(Coordinate x1 y1), i) =
@@ -472,6 +505,7 @@ combineShapeCurves op l r =
             V -> Coordinate {_x = x1 + x2, _y = max y1 y2} -- A | B
             H -> Coordinate {_x = max x1 x2, _y = y1 + y2}
        in (coord, info)
+    {-# INLINE intersectAndCombine #-}
 
     -- Hacky: works only if curves are sorted in 'x' increasing order for H and 'y' increasing order for V
     -- This function avoid repeating permutations of shapes but it increasing the complexity by a lot.
@@ -485,6 +519,7 @@ combineShapeCurves op l r =
           | getCoord c1 < getCoord c2 = previous
           | otherwise = go next rest
     intersection _ _ _ = error "Empty shapeCurve!"
+    {-# INLINE intersection #-}
 
     -- Sort 'x' in increasing order (implictly sorts 'y' in decreasing order because @f@ is a decreasing function).
     --
@@ -498,6 +533,7 @@ combineShapeCurves op l r =
       where
         less :: ShapeCurve -> ShapeCurve -> Bool
         less (Coordinate x1 _, _) (Coordinate x2 _, _) = x1 < x2
+    {-# INLINE combineAndSort #-}
 
 ---------------------------------------------------------------------
 -- Util
@@ -506,6 +542,7 @@ class HasGen (s :: Type) (m :: Type -> Type) where
   getGen :: m Random.GenIO
 
 instance (MonadState s m, HasType Random.GenIO s) => HasGen s m where
+  {-# INLINE getGen #-}
   getGen = getTyped <$> get
 
 -------------------------------
@@ -527,21 +564,27 @@ deriving stock instance Functor (DReturn r)
 -- | Double generated u.a.r from the range [0,1]
 rand :: forall s m. (HasGen s m, MonadIO m) => m Double
 rand = liftIO . Random.uniformRM (0.0, 1.0) =<< getGen @s
+{-# INLINE rand #-}
 
 average :: (Fractional a) => [a] -> a
 average [] = error "Average of empty list."
 average xs = x / (fromIntegral n) where
   go !(!n, !acc) x = (n + 1, acc + x)
   (n, x) = List.foldl' go (1 :: Int, head xs) (tail xs)
+{-# INLINE average #-}
 
 fst3 :: (a, b, c) -> a
 fst3 (a, _, _) = a
+{-# INLINE fst3 #-}
 
 snd3 :: (a, b, c) -> b
 snd3 (_, b, _) = b
+{-# INLINE snd3 #-}
 
 thrd3 :: (a, b, c) -> c
 thrd3 (_, _, c) = c
+{-# INLINE thrd3 #-}
 
 print :: forall a m. (MonadIO m, Show a) => a -> m ()
 print = liftIO . Prelude.print
+{-# INLINE print #-}

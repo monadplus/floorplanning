@@ -83,6 +83,7 @@ mkProblem problem = do
     when (any (> n) connections) $ Left "Module does not exist."
     unless (length (List.nub connections) == List.length connections) $ Left "Connection repeated."
   return $ Problem problem
+{-# INLINE mkProblem #-}
 
 -- | Generates a problem of the given number of modules.
 genProblem :: MonadIO m => Int -> m (Either String Problem)
@@ -96,12 +97,14 @@ genProblem n = genProblem' =<< liftIO Random.createSystemRandom
       where
         genModuleShapes :: MonadIO m => m [Shape]
         genModuleShapes = genShape (1, 5) <&> (\shape -> [shape, rotate90degrees shape])
+        {-# INLINE genModuleShapes #-}
 
         genShape :: MonadIO m => (Int, Int) -> m Shape
         genShape limits = do
           x <- liftIO $ Random.uniformRM limits g
           y <- liftIO $ Random.uniformRM limits g
           return (Shape' x y)
+        {-# INLINE genShape #-}
 
         genConnections :: MonadIO m => m (IntMap [ModuleIndex])
         genConnections = do
@@ -110,16 +113,21 @@ genProblem n = genProblem' =<< liftIO Random.createSystemRandom
           where
             go :: IntMap [ModuleIndex] -> (ModuleIndex, [ModuleIndex]) -> IntMap [ModuleIndex]
             go acc (i, is) = foldl' (\acc' i' -> Map.adjust (i :) i' acc') acc is
+        {-# INLINE genConnections #-}
 
         genWires :: MonadIO m => Int -> m [ModuleIndex]
         genWires moduleIndex = filterM (const p) [moduleIndex + 1 .. n]
           where
             p = return . (< (0.25 :: Double)) =<< (liftIO $ Random.uniform g)
+        {-# INLINE genWires #-}
+    {-# INLINE genProblem' #-}
+{-# INLINE genProblem #-}
 
 parseProblemFile :: FilePath -> IO (Either String Problem)
 parseProblemFile fp = do
   str <- Text.readFile fp
   return $ first errorBundlePretty (parseProblem str)
+{-# INLINE parseProblemFile #-}
 
 parseProblemFile' :: FilePath -> IO Problem
 parseProblemFile' fp = do
@@ -127,7 +135,9 @@ parseProblemFile' fp = do
   case r of
     Left err -> error err
     Right x -> return x
+{-# INLINE parseProblemFile' #-}
 
 -- | Parse a raw problem
 parseProblem :: Text -> Either (ParseErrorBundle Text Void) Problem
 parseProblem = undefined
+{-# INLINE parseProblem #-}

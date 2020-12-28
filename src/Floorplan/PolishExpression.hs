@@ -112,6 +112,7 @@ initialPE n
      in case validate pe of
           Left _ -> Nothing
           Right _ -> Just pe
+{-# INLINE initialPE #-}
 
 -- | Perturbate a polish expression randomly applying one of the three valid moves.
 --
@@ -135,6 +136,8 @@ perturbate gen pe = liftIO $ do
           Nothing -> go =<< Random.uniformRM (1, 2) gen
           Just pe' -> return pe'
       _ -> error "Random value should be in the range [1,3]"
+{-# INLINE perturbate #-}
+
 
 -- | Like 'perturbate' but n times
 perturbateN :: (MonadIO m) => Int -> PolishExpression -> m PolishExpression
@@ -147,6 +150,8 @@ perturbateN n pe = do
     go n gen pe = do
       pe' <- perturbate gen pe
       go (n - 1) gen pe'
+    {-# INLINE go #-}
+{-# INLINE perturbateN #-}
 
 -- | Swap two adjacent operands
 move1 :: (MonadIO m) => Random.GenIO -> PolishExpression -> m PolishExpression
@@ -154,6 +159,7 @@ move1 gen pe = do
   let (nOperands, _) = sizes pe
   i <- liftIO $ Random.uniformRM (0, nOperands - 2) gen
   return (move1' i pe)
+{-# INLINE move1 #-}
 
 -- | Swap operands i and i+1
 move1' :: Int -> PolishExpression -> PolishExpression
@@ -165,6 +171,8 @@ move1' i pe = go i `over` pe
       let (xs', (e2 : rest)) = span isOperator xs
        in e2 : (xs' ++ (e1 : rest))
     go n (x : xs) = x : go (if isOperand x then n - 1 else n) xs
+    {-# INLINE go #-}
+{-# INLINE move1' #-}
 
 -- | Complement some random chain of operators
 move2 :: (MonadIO m) => Random.GenIO -> PolishExpression -> m PolishExpression
@@ -173,6 +181,7 @@ move2 gen pe = liftIO $ do
   i <- Random.uniformRM (0, nOperators - 1) gen
   chainLength <- Random.uniformRM (0, nOperators - i - 1) gen
   return (move2' i chainLength pe)
+{-# INLINE move2 #-}
 
 -- | Complement the chain of operators of size _chainLength_ starting at _i_
 move2' ::
@@ -190,11 +199,14 @@ move2' i chainLength pe = go i chainLength `over` pe
       let (xs', rest) = takeOperators n xs
        in fmap complement (x : xs') ++ rest
     go s n (x : xs) = x : go (if isOperand x then s else s - 1) n xs
+    {-# INLINE go #-}
 
     complement :: Alphabet -> Alphabet
     complement x@(Operand _) = x
     complement (Operator H) = Operator V
     complement (Operator V) = Operator H
+    {-# INLINE complement #-}
+{-# INLINE move2' #-}
 
 -- | Swap a pair of adjacent operands and operators
 --
@@ -217,6 +229,7 @@ move3 gen pe = liftIO $ do
       where
         trySwap :: [Alphabet] -> IO (Maybe [Alphabet])
         trySwap = trySwap' 0
+        {-# INLINE trySwap #-}
 
         trySwap' :: Int -> [Alphabet] -> IO (Maybe [Alphabet])
         trySwap' _ [] = return Nothing
@@ -226,6 +239,7 @@ move3 gen pe = liftIO $ do
           | count > 1 = doWithProb count xs
           | otherwise = next count xs
         trySwap' count xs = next count xs
+        {-# INLINE trySwap' #-}
 
         doWithProb count xs@(e1 : e2 : rest) = do
           r <- Random.uniformRM (0, len -1) gen
@@ -233,11 +247,15 @@ move3 gen pe = liftIO $ do
             then return $ Just (e2 : e1 : rest)
             else next count xs
         doWithProb _ _ = error "Check move3.doWithProb"
+        {-# INLINE doWithProb #-}
 
         next count (e1@(Operator _) : e2@(Operator _) : rest) = fmap ([e1, e2] ++) <$> trySwap' (count - 2) rest
         next count (e1@(Operand _) : e2@(Operand _) : rest) = fmap ([e1, e2] ++) <$> trySwap' (count + 2) rest
         next count (e1 : e2 : rest) = fmap ([e1, e2] ++) <$> trySwap' count rest
         next _ _ = error "Check next in move3."
+        {-# INLINE next #-}
+    {-# INLINE move3' #-}
+{-# INLINE move3 #-}
 
 -- | Returns _m_ characters of the alphabet.
 takeOperators :: Int -> [Alphabet] -> ([Alphabet], [Alphabet])
@@ -246,6 +264,7 @@ takeOperators 0 xs = ([], xs)
 takeOperators n (x : xs) =
   let (xs', rest) = takeOperators (if isOperand x then n else n - 1) xs
    in (x : xs', rest)
+{-# INLINE takeOperators #-}
 
 -- Donat dos index relatius, fer swap
 
@@ -266,6 +285,7 @@ validate polishExpression =
       let nOperands = length . filter isOperand $ v
           nOperators = length . filter isOperator $ v
        in nOperators == nOperands - 1
+    {-# INLINE propI #-}
 
     propII :: PolishExpression -> Bool
     propII (PolishExpression v) =
@@ -281,6 +301,8 @@ validate polishExpression =
           )
           (0 :: Int)
           v
+    {-# INLINE propII #-}
+{-# INLINE validate #-}
 
 ---------------------------------------------------------
 -- Parsing and Quasiquoting
@@ -330,10 +352,12 @@ parseOperator c =
 isOperand :: Alphabet -> Bool
 isOperand (Operand _) = True
 isOperand (Operator _) = False
+{-# INLINE isOperand #-}
 
 isOperator :: Alphabet -> Bool
 isOperator (Operand _) = False
 isOperator (Operator _) = True
+{-# INLINE isOperator #-}
 
 -- | (#Operands, #Operators)
 sizes :: PolishExpression -> (Int, Int)
@@ -341,9 +365,12 @@ sizes pe =
   let nOperands = (length . filter isOperand) `applyTo` pe
       nOperators = (length `applyTo` pe) - nOperands
    in (nOperands, nOperators)
+{-# INLINE sizes #-}
 
 applyTo :: ([Alphabet] -> r) -> PolishExpression -> r
 applyTo f = f . coerce
+{-# INLINE applyTo #-}
 
 over :: ([Alphabet] -> [Alphabet]) -> PolishExpression -> PolishExpression
 over f = coerce . f . coerce
+{-# INLINE over #-}

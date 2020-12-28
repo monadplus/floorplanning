@@ -45,6 +45,7 @@ toSlicingTree =
       let (r, xs') = go xs
           (l, xs'') = go xs'
        in (Branch l op r, xs'')
+{-# INLINE toSlicingTree #-}
 
 -- Postorder traversal
 toPolishExpression :: SlicingTree -> PolishExpression
@@ -52,3 +53,4 @@ toPolishExpression tree = PolishExpression (go tree)
   where
     go (Leaf moduleIndex) = [Operand moduleIndex]
     go (Branch l op r) = go l ++ go r ++ [Operator op]
+{-# INLINE toPolishExpression #-}

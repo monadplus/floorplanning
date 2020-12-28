@@ -6,23 +6,30 @@ import Floorplan
 import Options.Applicative
 import System.IO
 
-------------------------------------
-
 main :: IO ()
 main = run =<< execParser opts
   where
     opts = info (paramsParser <**> helper) fullDesc
 
-------------------------------------
+run :: Parameters -> IO ()
+run params@Parameters{..} = do
+  setOutputEncoding
+  problem <- getProblem mode
+  let conf = Input problem params
+  floorplan <- simulatedAnnealing conf
+  printReport $ mkReport conf floorplan
+    where
+      setOutputEncoding = do
+        hSetEncoding stdout utf8
+        hSetEncoding stderr utf8
 
-data Parameters = Parameters
-  { mode :: Mode
-  , aspectRatio :: Interval AspectRatio
-  , lambda :: Lambda
-  , coolingRate :: CoolingRate
-  , gamma :: Gamma
-  }
-  deriving (Show)
+      getProblem :: Mode -> IO Problem
+      getProblem (Demo n) = do
+        r <- genProblem n
+        case r of
+          Left err -> error err
+          Right r -> return r
+      getProblem (Production fp) = parseProblemFile' fp
 
 paramsParser :: Parser Parameters
 paramsParser =
@@ -102,35 +109,3 @@ fileParser helpMsg =
         <> help helpMsg
         <> metavar "FILE"
     )
-
--------------------------------------------------------------
-
-run :: Parameters -> IO ()
-run params@Parameters{..} = do
-  setOutputEncoding
-  problem <- getProblem mode
-  floorplan <- simulatedAnnealing (toConfig params problem)
-  printReport $ mkReport floorplan
-    where
-      setOutputEncoding = do
-        hSetEncoding stdout utf8
-        hSetEncoding stderr utf8
-
-      getProblem :: Mode -> IO Problem
-      getProblem (Demo n) = do
-        r <- genProblem n
-        case r of
-          Left err -> error err
-          Right r -> return r
-      getProblem (Production fp) = parseProblemFile' fp
-
-      toConfig :: Parameters -> Problem -> Configuration
-      toConfig Parameters{..} problem =
-        Configuration
-          { _cProblem = problem,
-            _cAspectRatio = aspectRatio,
-            _cLambda = lambda,
-            _cCoolingRate = coolingRate,
-            _cGamma = gamma,
-            _cMode = mode
-          }

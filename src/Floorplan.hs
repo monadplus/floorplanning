@@ -22,7 +22,8 @@ module Floorplan
     simulatedAnnealing,
 
     -- ** Parameters
-    Configuration(..),
+    Input(..),
+    Parameters(..),
     Mode(..),
     Lambda,
     mkLambda,
