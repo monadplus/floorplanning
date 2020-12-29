@@ -225,15 +225,15 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
         Production _ -> return ()
         Demo _ -> do
           (_, _, boundingBoxes) <- use best
+          liftIO Console.clearScreen
           terminalSize <- liftIO Console.getTerminalSize
           case terminalSize of
             Nothing ->
               return ()
             Just (_, _) -> do
-              Pretty.prettyPrint (Floorplan boundingBoxes)
-              --liftIO $ threadDelay (10 ^ (5 :: Int))
-              liftIO Console.clearScreen
               liftIO $ Console.setCursorPosition 0 0 -- rows columns
+              Pretty.prettyPrint (Floorplan boundingBoxes)
+              liftIO $ threadDelay (10 ^ (5 :: Int))
     {-# INLINE printPartialSolution #-}
 
     outerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
@@ -569,7 +569,7 @@ rand = liftIO . Random.uniformRM (0.0, 1.0) =<< getGen @s
 average :: (Fractional a) => [a] -> a
 average [] = error "Average of empty list."
 average xs = x / (fromIntegral n) where
-  go !(!n, !acc) x = (n + 1, acc + x)
+  go (!n, !acc) x = (n + 1, acc + x)
   (n, x) = List.foldl' go (1 :: Int, head xs) (tail xs)
 {-# INLINE average #-}
 

@@ -4,6 +4,7 @@ import System.IO
 import Test.Hspec
 import Test.PolishExpression
 import Test.Pretty
+import Test.Problem
 import Test.SimulatedAnnealing
 
 main :: IO ()
@@ -18,3 +19,4 @@ allUnitTests = describe "Floorplanning" $ do
   polishExpressionSpec
   simulatedAnnealingSpec
   prettySpec
+  problemSpec

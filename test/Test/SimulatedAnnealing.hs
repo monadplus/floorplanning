@@ -13,6 +13,7 @@ import Floorplan.SlicingTree
 import Test.Hspec
 import Control.Monad.State.Lazy
 import System.Random.MWC
+import Floorplan.Problem
 
 simulatedAnnealingSpec :: Spec
 simulatedAnnealingSpec =
