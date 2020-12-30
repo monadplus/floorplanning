@@ -1,2 +1,7 @@
 resolver: lts-16.17 # ghc-8.8.4
-extra-deps: []
+extra-deps:
+  - ansi-terminal-0.11@sha256:97470250c92aae14c4c810d7f664c532995ba8910e2ad797b29f22ad0d2d0194,3307
+  - megaparsec-9.0.0@sha256:920d1e469056c746b532333a078c2a9a195fab5e860e0c9734ee92a28c2bfb65,3117
+  - mwc-random-0.15.0.1@sha256:4b7c9e25fa74ddba63b1f67500e55ae137622a4d94e8ee9a1710c1caa89858c7,3244
+  - optparse-applicative-0.16.0.0@sha256:de6f2a1be366a1f6db786883c605bbd121bbafbe41c4fff00a306672566b0e7f,4785
+  - random-1.2.0@sha256:4321209c8faedc034810ea8ed0dbc4a36f1a1df97b75af024219f2f533da57de,6094

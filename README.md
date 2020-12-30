@@ -6,7 +6,57 @@ This code is part of the final project from [Algorithms for AVLSI](https://www.f
 
 ![Floorplan gif](./demo.gif)
 
-## Try it
+## Installation
+
+This project is build using [GHC](https://www.haskell.org/ghc/)(compiler) and [cabal](https://cabal.readthedocs.io/en/latest/index.html)(build tool).
+
+The easiest way to install both is using [ghcup](https://gitlab.haskell.org/haskell/ghcup-hs)
+
+``` sh
+# Install ghcup
+curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+
+# Install GHC using ghcup
+ghcup install ghc 8.8.4
+
+# Install cabal using ghcup
+ghcup install cabal
+```
+
+Finally, we need to compile the project. This may takes some minutes and requires internet connection. This project does not depend on any `.so` so it should be possible to compile it in any architecture that supports `ghc`.
+
+```sh
+# It may takes some minutes
+$ cabal build
+...
+Preprocessing executable 'floorplanning' for floorplanning-0.1.0.0..
+Building executable 'floorplanning' for floorplanning-0.1.0.0..
+```
+
+## Usage
+
+Let's start by showing the available options:
+
+```sh
+# Use the --help flag to display the options
+$ cabal run floorplanning -- --help
+
+Usage: floorplanning ((-f|--file FILE) | --demo INTEGER)
+                     [--aspect-ratio (DOUBLE, DOUBLE)] [--lambda [0.0,1.0]]
+                     [--cooling-rate (0.0,1.0)] [--gamma (1,100)]
+
+Available options:
+  -f,--file FILE           Input file
+  --demo INTEGER           Run demo with the given number of modules
+  --aspect-ratio (DOUBLE, DOUBLE)
+                           Aspect Ratio Constraint (default: (0.5,2.0))
+  --lambda [0.0,1.0]       Lambda Parameter: area + lambda*wirelength
+                           (default: 0.5)
+  --cooling-rate (0.0,1.0) Cooling Rate Parameter: simulated annealing
+                           (default: 0.85)
+  --gamma (1,100)          Gamma Parameter: simulated annealing (default: 5)
+  -h,--help                Show this help text
+```
 
 You can either try the demo:
 
@@ -40,6 +90,15 @@ $ cabal run floorplanning -- -f "examples/example_20_modules"
 | P1 || 20 | 0.0 |       92.0 | 100.0 | 157.5 |
 +----++----+-----+------------+-------+-------+
 ```
+
+## Structure
+
+- `app` contains the sources of the executable.
+- `src` contains the sources of the library that the executable depends on.
+- `test` contains the sources of the library's test.
+- `slides` contains the sources for the presentation.
+- `examples` contains some examples to test the application.
+- `nix` contains the sources for the nix building tool.
 
 ## Future Work
 

@@ -175,7 +175,7 @@ makeLenses ''Variables
 -}
 simulatedAnnealing :: MonadIO m => Input -> m Floorplan
 simulatedAnnealing (Input problem Parameters{..}) = do
-  simulatedAnnealing' problem aspectRatio lambda  coolingRate gamma mode
+  simulatedAnnealing' problem aspectRatio lambda coolingRate gamma mode
 {-# INLINE simulatedAnnealing #-}
 
 simulatedAnnealing' ::
@@ -224,7 +224,8 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
       case mode of
         Production _ -> return ()
         Demo _ -> do
-          (_, _, boundingBoxes) <- use best
+          --(_, _, boundingBoxes) <- use best
+          (_, _, _) <- use best
           liftIO Console.clearScreen
           terminalSize <- liftIO Console.getTerminalSize
           case terminalSize of
@@ -232,8 +233,8 @@ simulatedAnnealing' problem aspectRatio lambda r gamma mode = do
               return ()
             Just (_, _) -> do
               liftIO $ Console.setCursorPosition 0 0 -- rows columns
-              Pretty.prettyPrint (Floorplan boundingBoxes)
-              liftIO $ threadDelay (10 ^ (5 :: Int))
+              --Pretty.prettyPrint (Floorplan boundingBoxes)
+              --liftIO $ threadDelay (10 ^ (5 :: Int))
     {-# INLINE printPartialSolution #-}
 
     outerLoop :: (MonadState Variables m, MonadIO m) => Int -> m ()
